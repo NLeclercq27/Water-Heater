@@ -6,13 +6,10 @@ This Python library allows to model electrical or heat pump water heaters, inclu
 ### Features
 The water heater model is a linear model with the following features.
 The model takes as first inputs the storage dimensions:
-    - Volume
-    - Diameter
+    - Volume or Diameter
+    - Height
     - Presence of an Electrical Water Heater (EWH)
     - Presence of a Heat Pump Water Heater (HPWH)
-Then, for a HPWH, the working fluid is needed + for both cases the heated fluid is also required
-    - storage fluid
-    - refrigerant
     
 The heating system is then defined:
 For a EWH, the electrical resistance peak power consumption is required
@@ -23,12 +20,13 @@ The heating system dimensions are then required:
     - height_E (height of the electrical resistance)
     - height_Hp (height of the HP coil)
     
-The model empirical parameters need then to be entered: 
-    - h_amb: heat exchange with the ambiance
-    - h_ref: heat exchange with the refrigerant
-    - delta: parameters mused to model the inversion of layer scheme 
-    - H_mix: height of mixing with the supply water at the bottom of the storage tank
-    - eps_is: isentropic efficiency of the compressor 
+The model parameters need then to be entered: 
+    - h_amb: heat exchange with the ambiance (from the water)
+    - h_ref: heat exchange with the refrigerant (to the water)
+    - delta: parameters mused to model the inversion of layer scheme (>>10000)
+    - H_mix: height of mixing with the supply water at the bottom of the storage tank (+- 15cm)
+    - eps_is: isentropic efficiency of the compressor (+- 0.65)
+    - W_dot_el_basis: auxiliaries electricty consumption of the heat pump (100 W)
     
 Then, it is necessary to initiate the simulation, with the number of division of the storage and the initial temperature distribution vector
 
@@ -68,4 +66,4 @@ The above commands create a dedicated environment so that your conda configurati
 
 To check that everything runs fine, you can run the example python files provided in the scripts folder.
 
-
+Please contact Nicolas Leclercq (N.Leclercq@uliege.be) for more information.

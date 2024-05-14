@@ -10,9 +10,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time as counter
 from scipy.interpolate import interp1d
+import pickle
+import os
 
 class WaterHeater():
-    def __init__(self, fluid, Volume = None, Diameter = None, Height = None, EWH = False, HPWH = False, refrigerant = None, double = False):
+    def __init__(self, Volume = None, Diameter = None, Height = None, EWH = False, HPWH = False, double = False):
         
         """
         Initialization of the WaterHeater
@@ -26,10 +28,9 @@ class WaterHeater():
             refrigerant: type of refrigerant required for HPWH
             double: True for the VELIS (two storage tanks)
         """
-    
+        self.fluid = 'water'
         self.Volume = Volume
         self.Diameter = Diameter
-        self.fluid = fluid
         if self.Volume != None:
             self.Height = self.Volume*4/np.pi/self.Diameter**2 # height of the storage
         else :
@@ -38,8 +39,8 @@ class WaterHeater():
         self.EWH = EWH # check if the heater is electric
         self.HPWH = HPWH # check if the heater is a heat pump 
         # Without EWH and HPWH, the tank is just a storage tank
-        if isinstance(refrigerant, str):
-            self.refrigerant = refrigerant
+        # if isinstance(refrigerant, str):
+        #     self.refrigerant = refrigerant
         
         self.double  = double 
         if self.double == True: 
@@ -51,7 +52,7 @@ class WaterHeater():
         self.Total_volume = self.Volume*self.tank_number
 
 
-    def Heating_system(self, z_init_E = 0.0, z_init_HP = 0.0, height_E = 0.0, height_HP = 0.0, Q_dot_peak_E = 0):
+    def Heating_system(self, z_control = 0.0, z_init_E = 0.0, z_init_HP = 0.0, height_E = 0.0, height_HP = 0.0, Q_dot_peak_E = 0):
         """
         Initialization of the heating system if required 
         
@@ -63,10 +64,10 @@ class WaterHeater():
             Q_dot_peak: peak power of the electrical resistor 
             
         """
-        self.param_heating = {'z_init_E' : z_init_E, 'z_init_HP' : z_init_HP, 'height_E' : height_E,
+        self.param_heating = {'z_control': z_control, 'z_init_E' : z_init_E, 'z_init_HP' : z_init_HP, 'height_E' : height_E,
                                'height_HP' : height_HP, 'Q_dot_peak_E' : Q_dot_peak_E}
         
-    def Model_parameters(self, h_amb = 0, h_ref = 0, delta = 1, s = 1, H_mix = 0,  eps_is = 0.7):
+    def Model_parameters(self, h_amb = 0, h_ref = 0, delta = 10000, H_mix = 0, eps_is = 0.6, W_dot_el_basis = 50):
         
         """
         Initialization of the model parameters
@@ -77,11 +78,15 @@ class WaterHeater():
             s: averaged boudary temperature correction coefficient (empirical)
             delta: coefficient taking into account the reversing effect du to density difference between two adjacent layers
             H_mix: height of mixing in meters to ditribute the inlet mass flow rate
-            eps_is: isentropic efficiency of the compressor 
             
         """
-        
-        self.MParam = {'h_amb' : h_amb, 'h_ref' : h_ref, 'delta' : delta, 'H_mix' : H_mix, 'eps_is' : eps_is}       
+        if self.HPWH == True:
+            self.refrigerant = 'propane' # only used in the case where a Heat Pump water heater is used
+            eps_is = 0.7 # assumption
+        else:
+            self.refrigerant = None 
+            eps_is = None 
+        self.MParam = {'h_amb' : h_amb, 'h_ref' : h_ref, 'delta' : delta, 'H_mix' : H_mix, 'eps_is' : eps_is, 'W_dot_el_basis' : W_dot_el_basis}       
 
 
         
@@ -106,7 +111,7 @@ class WaterHeater():
         self.layer["A_wall"] = self.layer["H"]*np.pi*self.Diameter
         self.layer["A_wall_amb"] = self.layer["A_wall"].copy()
         self.layer["A_wall_amb"][0] = self.layer["A_wall"][0] + np.pi*self.Diameter**2/4 # addition of the top area
-        self.layer["A_wall_amb"][-1] = self.layer["A_wall"][-1] + np.pi*self.Diameter**2/4*3 # addition of the bottom area
+        self.layer["A_wall_amb"][-1] = self.layer["A_wall"][-1] + np.pi*self.Diameter**2/4 # addition of the bottom area
         # A_wall_amb is used for the ambiance losses (takes the top and the bottom area into account)
         # A_wall is only used for the heat exchange with the refrigerant 
         
@@ -149,6 +154,9 @@ class WaterHeater():
         self.k_l = 1
         while self.MParam['H_mix'] > self.k_l * self.layer['H'][0]:
             self.k_l += 1
+            
+        # fraction of height for the control 
+        self.control_ratio = 1 - self.param_heating['z_control']/self.Height
         
         
         # Inversion of the vector as it starts from 0 that is the top of the boiler
@@ -242,11 +250,11 @@ class WaterHeater():
         T_2 = self.T_record2[-1]
         
         
-        # Function to check for the temperature inversion phenomenon (if T[i] > T[i-1], the inversion should happen)
+        # Function to check for the temperature inversion phenomenon (if T[i] > T[i-1] + tol, the inversion should happen)
+        T_diff_tol = 0 # K
         def is_increasing(vector):
             for i in range(1, len(vector)):
-                diff_min = 0.5
-                if vector[i] > vector[i-1] + diff_min:
+                if vector[i] > vector[i-1] + T_diff_tol:
                     return True
             return False
         
@@ -269,7 +277,7 @@ class WaterHeater():
             # new_sim as calculation is needed for the first sim
             # switch == 1 if heating K_i will automatically change
             
-            if is_increasing(T_1) or switch1 != switch1_pre or new_sim or switch1 == 1 :
+            if is_increasing(T_1) or switch1 != switch1_pre or new_sim or switch1 == 1:
                 tic_building_1 = counter.perf_counter()
                 #not(hasattr(self, 'A')) condition for the creation of the matrix, not in use anymore
 
@@ -278,25 +286,20 @@ class WaterHeater():
                 if self.HPWH == True:
                     # Get the first matching value from the T array
                     # Highest temperature where the water is heated (pinch point at Q = 1)
-                    T_w_out_ev = T_1[self.k_HPWH == 1][0]
                     T_w_out_ev = max(T_1[self.k_HPWH == 1])
+                    pp_cd = 5 #K
+                    T_ref = T_w_out_ev + pp_cd
+                    # Chose the pressure reference with a pinch point of 5K at a quality Q = 1
+                    P_ref = PropsSI( 'P',  'T', T_ref, 'Q', 0.5, self.refrigerant)
                 else:
-                    # Handle the case where no values satisfy the condition
-                    T_w_out_ev = 273.15
-                # print(T_w_out_ev)
-                pp_cd = 5 #K
-                T_ref = T_w_out_ev + pp_cd
-                
-                # Chose the pressure reference with a pinch point of 5K at a quality Q = 1
-                P_ref = PropsSI( 'P',  'T', T_ref, 'Q', 0.5, self.refrigerant)
-                
+                    T_ref = 273.15
 
                  
                 # Loop on the storage size to fill in the matrices
                 for i in range(0,self.layer['nx']):
 
                     if i != self.layer['nx']-1:
-                        if T_1[i + 1] > T_1[i]:
+                        if T_1[i + 1] > T_1[i] + T_diff_tol:
                             K[i] = self.prop_dict['k_sto']*self.MParam['delta']#*abs(T[i + 1] - T[i])
                         else:
                             K[i] = self.prop_dict['k_sto']
@@ -380,7 +383,7 @@ class WaterHeater():
             Q_dot_ref_vect = switch1*self.k_HPWH*h_ref*self.layer["A_wall"]*(T_ref - T_1)
             Q_dot_amb_vect = -h_amb*self.layer["A_wall_amb"]*(T_1 - T_amb)
             Q_dot_E_vect = switch1*Q_dot_E_layer_vect
-            self.W_dot_cons_1.append(sum(switch1*Q_dot_E_layer_vect))
+            self.W_dot_cons_1.append(sum(Q_dot_E_vect))
             E_temp = sum(self.layer["m"]*self.prop_dict['cp_sto']*T_1)
             
             if self.double == True:
@@ -395,25 +398,21 @@ class WaterHeater():
                     if self.HPWH == True:
                         # Get the first matching value from the T array
                         # Highest temperature where the water is heated (pinch point at Q = 1)
-                        T_w_out_ev = T_2[self.k_HPWH == 1][0]
                         T_w_out_ev = max(T_2[self.k_HPWH == 1])
+                        pp_cd = 5 #K
+                        T_ref = T_w_out_ev + pp_cd
+                        # Chose the pressure reference with a pinch point of 5K at a quality Q = 1
+                        P_ref = PropsSI( 'P',  'T', T_ref, 'Q', 0.5, self.refrigerant)
                     else:
-                        # Handle the case where no values satisfy the condition
-                        T_w_out_ev = 273.15
-                    # print(T_w_out_ev)
-                    pp_cd = 5 #K
-                    T_ref = T_w_out_ev + pp_cd
-                    
-                    # Chose the pressure reference with a pinch point of 5K at a quality Q = 1
-                    P_ref = PropsSI( 'P',  'T', T_ref, 'Q', 0.5, self.refrigerant)
-        
+                        T_ref = 273.15
+
                     # Loop to create the matrices of the second tank 
                     T_supply_tank2 = T_1[0]
 
                     for i in range(0,self.layer['nx']):
                         
                         if i != self.layer['nx']-1:
-                            if T_2[i + 1] > T_2[i]:
+                            if T_2[i + 1] > T_2[i] + T_diff_tol:
                                 K2[i] = self.prop_dict['k_sto']*self.MParam['delta']#*abs(T[i + 1] - T[i])
                             else:
                                 K2[i] = self.prop_dict['k_sto']
@@ -546,19 +545,21 @@ class WaterHeater():
         Control strategy of the water heater
         Strat: 
         The system stops heating when the set point is exceeded by a temperature difference DT_high
-        The system start heating when the control temperatrure is DT_low below the set point
+        The system starts heating when the control temperatrure is DT_low below the set point
         switch2 always has the priority on switch 1
         
         """
-        DT_high = 1
+        DT_high = -1
+        # DT_high = -3
 
         ## Control probes
-        DT_low = 6
+        DT_low = 7
+        # DT_low = 25
         hyst = DT_low + DT_high
         T_SP = T_SP + DT_high
         
         if self.double == False:
-            T_probe = T[int(np.round(nx*(2/3)))]
+            T_probe = T[int(np.round(nx*(self.control_ratio)))]
             
             if T_probe >= T_SP:
                 switch1 = 0
@@ -569,8 +570,8 @@ class WaterHeater():
         
             switch2 = 0
         else: 
-            T_probe1 = T[int(np.round(nx*(2/3)))]
-            T_probe2 = T2[int(np.round(nx*(2/3)))]
+            T_probe1 = T[int(np.round(nx*(self.control_ratio)))]
+            T_probe2 = T2[int(np.round(nx*(self.control_ratio)))]
             if T_probe1 >= T_SP:
                 switch1 = 0
             elif T_probe1 <= T_SP - hyst:
@@ -593,9 +594,9 @@ class WaterHeater():
         """Function analyzing the heat pump cycle, allowing to retrieve the compressor electrical consumption"""
         
         # Heat source ref pressure
-        pp_ev = 5 #K
+        pp_ev = 10 #K
         SH = 5 #K
-        T_sat_ev = T_ext + pp_ev
+        T_sat_ev = T_ext - pp_ev
         P_ev = PropsSI( 'P',  'T', T_sat_ev, 'Q', 0.5, self.refrigerant)
         
         # Compressor analysis
@@ -603,7 +604,11 @@ class WaterHeater():
         s_su_cp = PropsSI( 'S',  'T', T_sat_ev  + SH, 'P', P_ev, self.refrigerant)
         h_is_cp = PropsSI( 'H',  'S', s_su_cp, 'P', P_cd, self.refrigerant)
         w_is = h_is_cp - h_su_cp
-        w = w_is/self.MParam['eps_is']
+        
+        P_ratio = P_cd/P_ev
+        # eps_is = -(0.35* P_ratio -0.8)**2 + self.MParam['eps_is']
+        eps_is = self.MParam['eps_is']
+        w = w_is/eps_is
         
         # Cd analysis
         h_su_cd_real = h_su_cp + w
@@ -611,10 +616,11 @@ class WaterHeater():
         h_ex_cd = PropsSI( 'H',  'Q', 0, 'P', P_cd, self.refrigerant)
         m_dot_ref = Q_dot_ref/(h_su_cd - h_ex_cd)
         Q_dot_cd_real = m_dot_ref*(h_su_cd_real - h_ex_cd)
-        
-        eta_el = 0.9
-        W_dot_cp_el = w*m_dot_ref*eta_el
-        COP = Q_dot_ref/W_dot_cp_el
+        if m_dot_ref != 0:
+            W_dot_cp_el = w*m_dot_ref + self.MParam['W_dot_el_basis']
+        else: 
+            W_dot_cp_el = 0
+        COP = Q_dot_ref/(W_dot_cp_el+1e-6)
         
         return W_dot_cp_el, COP
             
@@ -746,20 +752,26 @@ class WaterHeater():
         ax3 = plt.subplot(2,1,2)
 
         plt.grid()
-        l3 = plt.plot(np.array(time_vect)/3600, np.array(self.W_dot_cons_1), linewidth = 2, color=u'#1f77b4')
-        l4 = plt.plot(np.array(time_vect)/3600, np.array(self.W_dot_cons_2), linewidth = 2, color=u'#2ca02c')
+        if self.EWH == True:
+            l3 = plt.plot(np.array(time_vect)/3600, np.array(self.W_dot_cons_1), linewidth = 2, color=u'#1f77b4')
+        elif self.HPWH == True:
+            l3 = plt.plot(np.array(time_vect)/3600, np.array(self.W_dot_cons_tot), linewidth = 2, color=u'#1f77b4')
+            
+        if self.double == True:
+            l4 = plt.plot(np.array(time_vect)/3600, np.array(self.W_dot_cons_2), linewidth = 2, color=u'#2ca02c')
+            lns = l3+l4
+            labels = ['HR1', 'HR2']
+            plt.legend(lns, labels,fontsize=12, bbox_to_anchor=(0.22, 0.82))
         plt.xlabel('Time [h]',fontsize=18,  fontname="Times New Roman")
         plt.ylabel('$\dot{W}_{cons,elec}$ [W]',fontsize=labelsize, fontname="Times New Roman", color='k') 
 
         
-        lns = l3+l4
-        labels = ['HR1', 'HR2']
-        plt.legend(lns, labels,fontsize=12, bbox_to_anchor=(0.22, 0.82))
+
         
         
         plt.xlim(0, max(np.array(time_vect)/3600) +0.02)
-        plt.ylim(-50, 3001)
-        plt.yticks([0, 750,1500,2250,3000])
+        # plt.ylim(-50, 3001)
+        # plt.yticks([0, 750,1500,2250,3000])
         ax4=ax3.twinx()
         SOC = self.SOC.copy()
         del SOC[-1]
@@ -975,5 +987,165 @@ class WaterHeater():
             RMSE = np.sqrt(sum(error_T**2)/len(error_T))# Root mean squared error 
             print(f"Mean absolute error : {MAE:.1f} K")
 
+
+    def plotTPointsNUOS(self, index = -1,  exp_data = None):
+        """
+        Plot a diagram of the vertical temperature profiles of the Velis 65L
+        
+        """
+
+        T_disp = np.flip(self.T_record1[index])
+        # print(T_disp)
+     
+        H = self.Height*100
+        W = self.Diameter*150
+    
+        ax = plt.figure(figsize=(4*1.5/1.5,3*1.5*2/1.5), constrained_layout=True)
+    
+        ax = plt.axes(xlim = (-W/2 - 0.1*W, W/2 + 0.1*W),ylim = (-H/2 - 0.1*H, H/2 + 0.1*H))
+        plt.rcParams.update({'font.size':'17'})
+        params = {
+                  "text.usetex" : True,
+                  "font.family" : "cm"}
+        plt.rcParams.update(params)
+        # contour
+        xcont = np.array([-W/2,-W/2, W/2, W/2,-W/2])
+        ycont = np.array([-H/2,H/2,H/2,-H/2,-H/2])
+        plt.plot(xcont, ycont,'k', linewidth = 2.5)
+        
+        # layers
+        T_disp_x = []
+        T_disp_y = []
+        for k in range(len(T_disp)):
+            
+            H_step = H/len(T_disp)
+            x_sep = np.array([-W/2, W/2])
+            y_sep = np.array([-H/2 + (k+1)*H_step, -H/2 + (k+1)*H_step])
+            x_rect = np.array([-W/2, -W/2 , W/2, W/2,- W/2])
+            y_rect = np.array([-H/2+ k*H_step, -H/2 + (1+k)*H_step, -H/2 + (1+k)*H_step,  -H/2+ k*H_step, -H/2+ k*H_step])
+            plt.plot(x_sep, y_sep,'k', linewidth = 0.25)
             
             
+            #color range
+            T_min = 283.15
+            T_max = 323.15+10
+            
+            T_disp_x.append((T_disp[k] - T_min)/(T_max - T_min)*W - W/2)
+            T_disp_y.append(-H/2 + H_step/2 + k*H_step)
+            
+            
+            R = (T_disp[k] - T_min)/(T_max - T_min)
+            G = 0.2
+            B = (T_disp[k] - T_max)/(T_min - T_max)
+            plt.fill(x_rect, y_rect, color = (R,G,B))
+        plt.plot(T_disp_x, T_disp_y,'k', linewidth = 2)
+        
+        # Plot x axis
+        axis_xx = [-W/2, W/2]
+        axis_xy = [-H/2 - 0.05*H/2, -H/2 - 0.05*H/2]
+        
+        plt.plot(axis_xx, axis_xy,'k', linewidth = 1.5)
+        
+        n_disp = 5
+        size_line = 0.01
+        step = W/n_disp
+        
+        T = np.linspace(T_min - 273.15, T_max - 273.15, n_disp+1)
+        for i in range(n_disp+1):
+            line_x = [-W/2 + i*step, - W/2 + i*step]
+            line_y = [-H/2 - 0.05*H/2 -  H* size_line , - H/2 - 0.05*H/2 + H* size_line]
+            
+            plt.plot(line_x, line_y,'k', linewidth = 1.5)
+            plt.text(-W/2 -1.5 + i*step, -H/2 - 0.05*H/2 - H*(size_line+0.05),''.join([ str(int(T[i])) ,'$^\circ$C']))
+        
+        ax.set_aspect('equal', 'box')
+        plt.axis('off')
+        
+        # Resistor 
+        # exc = 0.08*W
+        # h_init = 0.1*H*0
+        # h_step = 0.18*W
+        # shift_res = 0.02*H
+        # x_res1  = np.array([0, 0, -exc, + exc, - exc, +exc])
+        # y_res1 = np.array([0, h_init, h_init + h_step/2, h_init + h_step/2 + h_step, h_init + h_step/2 + 2*h_step , h_init + 3*h_step+ h_step/2])
+        
+        # x_res2  = np.flip(x_res1 + shift_res)
+        # y_res2  = np.flip(y_res1)
+        # x_res = np.concatenate([x_res1, x_res2])
+        # y_res = np.concatenate([y_res1, y_res2])
+        # color = 'darkslategrey'
+        # plt.plot(x_res - shift_res/2, y_res - H/2, color = color, linewidth = 2.5)
+        # plt.plot(x_res - shift_res/2 + 1.2*W, y_res - H/2, color = color, linewidth = 2.5)
+        
+        # When experimental data need to be plotted
+        if exp_data != None:
+            
+            h_exp = exp_data['h'] 
+            T_profile = exp_data['T'] 
+            T_disp_x_1_exp = (T_profile + 273.15 - T_min)/(T_max - T_min)*W - W/2 
+
+            T_disp_y_exp = -H/2 + h_exp
+            plt.scatter(T_disp_x_1_exp, T_disp_y_exp,  marker="o", s=32*2,  facecolors='y', edgecolors='k',zorder=2)
+
+            ## Error calculation 
+            
+            h_vect_interp = np.linspace(min(T_disp_y),max(T_disp_y),100, endpoint=True)
+            T1_interp = interp1d(T_disp_y, T_disp, kind='cubic')
+            T1_interp_vect = T1_interp(h_vect_interp)
+
+            
+            index_vect = np.zeros(len(T_disp_y_exp ))
+            error_T = np.zeros(len(T_disp_y_exp ))
+            for k in range(len(T_disp_y_exp)):
+                
+                index_vect[k] = np.argmin(abs(h_vect_interp - T_disp_y_exp[k]))
+
+                error_T[k] = T1_interp_vect[int(index_vect[k])] - T_profile[k] - 273.15
+            
+            MAE = sum(abs(error_T))/len(error_T) # Mean absolute error
+            RMSE = np.sqrt(sum(error_T**2)/len(error_T))# Root mean squared error 
+            print(f"Mean absolute error : {MAE:.1f} K")       
+        
+
+def save_results(name, results):
+    # 'list_file' specifies the precise file directory
+    name = file_name(name)
+    list_file = ['..\\data\\Simulations\\' , name ,'.pkl']
+    
+    # The complete file name is built up
+    filename = "".join(list_file)       
+    
+    # 'file' points at the file in which the pickled object will be written
+    with open(filename, "wb") as file:
+        # The dump() method of the pickle module in Python, converts a Python object hierarchy into a byte stream. 
+        # This process is also called as serilaization.
+        pickle.dump(results, file)
+
+
+def open_results(name, path = None):
+    # 'list_file' specifies the precise file directory
+    if path == None:
+        path = '..\\data\\Simulations\\'
+    list_file = [path , name ,'.pkl']
+    # The complete file name is built up
+    filename = "".join(list_file)       
+    # 'file' points at the file to be opened
+    with open(filename, "rb") as file:
+        # The load() method of Python pickle module reads the pickled byte stream of one or more python objects 
+        # from a file object
+        output = pickle.load(file)
+    return output
+    
+
+def file_name(filename):
+    list_path = ['..\\data\\Simulations\\' , filename ,'.pkl']
+    filename_new = filename
+    path = "".join(list_path) 
+    i = 2
+    while os.path.isfile(path):
+        filename_list = [ filename , '_' ,str(i)]
+        filename_new = "".join(filename_list) 
+        list_path = ['..\\data\\simulations\\' , filename_new ,'.pkl']
+        path = "".join(list_path) 
+        i += 1
+    return filename_new         
