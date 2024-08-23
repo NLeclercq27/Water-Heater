@@ -93,7 +93,7 @@ NUOS = wh.procF.WaterHeater(Height = Height, Diameter = Diameter, EWH = False, H
 NUOS.Heating_system(z_control = 0.29, z_init_E = 0.0, z_init_HP = 0.05, height_E = 0.16, height_HP = 0.25, Q_dot_peak_E = 1000) # !! For one single tank
 
 # Tank model empirical parameters 
-NUOS.Model_parameters(h_amb = 0.7, h_ref = 430, delta = 10000, H_mix = 0.2, eps_is = 0.65, W_dot_el_basis = 100)
+NUOS.Model_parameters(h_amb = 0.7, h_ref = 191, delta = 10000, H_mix = 0.2, eps_is = 0.65, W_dot_el_basis = 100)
 
 #MN model initialization
 nx = 40
@@ -114,17 +114,17 @@ nx = 40
 # spl = UnivariateSpline(old_indices,T_init_exp_distrib,k=3,s=0)
 # T_vect_init = spl(new_indices)
 
-T_init = 52.2 + 273.15
+T_init = 17 + 273.15
 T_vect_init = np.full(nx, T_init)
 # The first temperature initialization vector is used for the first tank (where inlet comes in) the second for the second tank
 NUOS.MN_model_init(nx, T_vect_init)
 
 # Simulation constant variables
 T_w_supply = 15.39 + 273.15 # degC
-T_amb = 15.99 + 273.15
+T_amb = 25 + 273.15
 
 ### Input variable
-T_SP = 0 + 273.15
+T_SP = 50 + 273.15
 T_ext = T_amb
 
 #%% Simulation
@@ -135,7 +135,7 @@ dt_dis = 2 #time step of a discharge
 tic_model = time.perf_counter()
 
 dt = dt_cha# seconds
-time_sq = 70*3600 # seconds
+time_sq = 15*3600 # seconds
 m_dot = 0
 NUOS.MN_model(dt, time_sq, m_dot, T_w_supply, T_amb, T_SP, T_ext)
 
@@ -215,7 +215,7 @@ print('Remaining time:', str(t_remaining), 's')
 
 #%% SAVE RESULTS 
 
-name = 'Ambient_losses_V2'
+name = 'Heating25'
    
 wh.procF.save_results(name, NUOS)
     

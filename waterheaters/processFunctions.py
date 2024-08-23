@@ -288,6 +288,8 @@ class WaterHeater():
                     # Highest temperature where the water is heated (pinch point at Q = 1)
                     T_w_out_ev = max(T_1[self.k_HPWH == 1])
                     pp_cd = 5 #K
+                    delta = (T_amb - 273.15)/3
+                    pp_cd = 5 + delta #K
                     T_ref = T_w_out_ev + pp_cd
                     # Chose the pressure reference with a pinch point of 5K at a quality Q = 1
                     P_ref = PropsSI( 'P',  'T', T_ref, 'Q', 0.5, self.refrigerant)
@@ -393,18 +395,21 @@ class WaterHeater():
                     tic_building_2 = counter.perf_counter()
                     #not(hasattr(self, 'A')) condition for the creation of the matrix, not in use anymore
 
+                    # Commented as double tank storage does not apply with heat pump heating system
                     # water temperature 
                     # Check if any values in self.k_HPWH are equal to 1
-                    if self.HPWH == True:
-                        # Get the first matching value from the T array
-                        # Highest temperature where the water is heated (pinch point at Q = 1)
-                        T_w_out_ev = max(T_2[self.k_HPWH == 1])
-                        pp_cd = 5 #K
-                        T_ref = T_w_out_ev + pp_cd
-                        # Chose the pressure reference with a pinch point of 5K at a quality Q = 1
-                        P_ref = PropsSI( 'P',  'T', T_ref, 'Q', 0.5, self.refrigerant)
-                    else:
-                        T_ref = 273.15
+                    # if self.HPWH == True:
+                    #     # Get the first matching value from the T array
+                    #     # Highest temperature where the water is heated (pinch point at Q = 1)
+                    #     T_w_out_ev = max(T_2[self.k_HPWH == 1])
+                    #     pp_cd = 5 #K
+                    #     delta = T_amb - 273.15
+                    #     pp_cd = 5 + delta #K
+                    #     T_ref = T_w_out_ev + pp_cd
+                    #     # Chose the pressure reference with a pinch point of 5K at a quality Q = 1
+                    #     P_ref = PropsSI( 'P',  'T', T_ref, 'Q', 0.5, self.refrigerant)
+                    # else:
+                    #     T_ref = 273.15
 
                     # Loop to create the matrices of the second tank 
                     T_supply_tank2 = T_1[0]

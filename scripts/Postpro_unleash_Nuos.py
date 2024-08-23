@@ -490,3 +490,180 @@ ax.legend(bbox_to_anchor=(0.76,1.02), ncol=1, fontsize=12)
 # exp_data['T_avg'] = np.mean(exp_data['T']) 
 # index_sim = np.argmin(abs(np.array(results.time_vect) - t))
 # results.plotTPointsNUOS(index = index_sim,exp_data = exp_data)
+
+
+#%% heating scenari
+
+
+"""Read TDMS File"""
+# data = TDMS_to_CSV("Experimental_results\\240212150139.TDMS",0)
+data_heating_25C = TDMS_to_CSV("..\\data\\Experimental\\Experimental_results_HP\\heating_25C.TDMS",0)
+data_heating_20C = TDMS_to_CSV("..\\data\\Experimental\\Experimental_results_HP\\heating_20C.TDMS",0)
+data_heating_15C = TDMS_to_CSV("..\\data\\Experimental\\Experimental_results_HP\\heating_15C.TDMS",0)
+data_heating_10C = TDMS_to_CSV("..\\data\\Experimental\\Experimental_results_HP\\heating_10C.TDMS",0)
+data_heating_5C = TDMS_to_CSV("..\\data\\Experimental\\Experimental_results_HP\\heating_5C.TDMS",0)
+data_heating_0C = TDMS_to_CSV("..\\data\\Experimental\\Experimental_results_HP\\heating_0C.TDMS",0)
+# data_heating_neg5C = TDMS_to_CSV("..\\data\\Experimental\\Experimental_results_HP\\heating_-5C.TDMS",0)
+
+#%% Calculations
+
+data_heating = {}
+data_heating['25C'] = {}
+data_heating['20C'] = {}
+data_heating['15C'] = {}
+data_heating['10C'] = {}
+data_heating['5C'] = {}
+data_heating['0C'] = {}
+# data_heating['-5C'] = {}
+data_heating['25C']['df'] = data_heating_25C
+data_heating['20C']['df'] = data_heating_20C
+data_heating['15C']['df'] = data_heating_15C
+data_heating['10C']['df'] = data_heating_10C
+data_heating['5C']['df'] = data_heating_5C
+data_heating['0C']['df'] = data_heating_0C
+# data_heating['-5C']['df'] = data_heating_neg5C
+
+T_init = 15
+
+for key in data_heating:
+    data_heating[key]['df']["Chrono"] = data_heating[key]['df']["Time"] - data_heating[key]['df']["Time"][0]
+    data_heating[key]['df']["Chrono"] = data_heating[key]['df']["Chrono"].dt.total_seconds() 
+    
+    data_heating[key]["T_amb_avg"] = np.mean(data_heating[key]['df']['T_amb'])
+    data_heating[key]["W_dot_e"] = data_heating[key]['df']['Power_Total']
+    
+    # Avg temperature
+    data_heating[key]['T_mean_exp'] = np.zeros(len(data_heating[key]['df']["Chrono"]))
+    data_heating[key]['time'] = data_heating[key]['df']["Chrono"]
+    E_tot = 0
+    for k in range(len(data_heating[key]['df']["Chrono"])):
+        row = data_heating[key]['df'].loc[k]
+        data_heating[key]['T_mean_exp'][k] = np.mean([row['T_tank1_1'], row['T_tank1_2'], row['T_tank1_3'], row['T_tank1_4'], row['T_tank1_5'], row['T_tank1_6'], row['T_tank1_7'], row['T_tank1_8'], row['T_tank1_9'] , row['T_tank1_10'], row['T_tank1_11']])
+        E_tot += data_heating[key]['df']['Power_Total'][k]
+    
+    data_heating[key]['E_tot'] = E_tot/3.6/10**6
+    
+    diff = data_heating[key]['T_mean_exp'][0] - T_init
+    data_heating[key]['T_mean_exp'] = data_heating[key]['T_mean_exp']  - diff
+    
+    
+    
+    
+#%% Plots
+fig, ax = plt.subplots(figsize=(5.5/1.5,4.3/1.3),constrained_layout=True)   
+plt.rcParams.update({'font.size':'16'})
+params = {
+          "text.usetex" : True,
+          "font.family" : "cm"}
+plt.rcParams.update(params)
+plt.grid()
+plt.xlabel('Time [h]', fontsize=16)
+plt.ylabel('Avg temperature [$^\circ$C]',fontsize=16)  
+
+for key in data_heating:
+    # plt.plot(np.array(results.time_vect)/3600, T_mean_sim , color = 'k',  linewidth = 1.5,zorder=1,label =  'Simulation')  
+    # plt.scatter(time_vect_meanT[::2000], T_mean_exp[::2000], marker="o", s=36, color = 'r',zorder=2,label =  'Experimental')  
+    plt.plot(data_heating[key]['time'][::500]/3600, data_heating[key]['T_mean_exp'][::500],  linewidth = 1.5, label = key)  
+plt.ylim([10,60])
+plt.xlim([0,13])
+plt.yticks([10,20,30,40,50,60])  
+# plt.xticks([0, 2,4,6,8])   
+# plt.legend(bbox_to_anchor=(0.6,1.02), ncol=6, fontsize=12)
+plt.legend(bbox_to_anchor=(0,1.02,1,0.2), loc="lower left",
+                mode="expand", borderaxespad=0, ncol=3, fontsize=14)
+
+
+#####################################################################
+
+
+fig, ax = plt.subplots(figsize=(5.5/1.5,4.3/1.3),constrained_layout=True)   
+plt.rcParams.update({'font.size':'16'})
+params = {
+          "text.usetex" : True,
+          "font.family" : "cm"}
+plt.rcParams.update(params)
+plt.grid()
+plt.xlabel('Time [h]', fontsize=16)
+plt.ylabel('Power consumtion [W]',fontsize=16)  
+# plt.plot(np.array(results.time_vect)/3600, results.W_dot_cons_tot , color = 'k',  linewidth = 1.5,zorder=1,label =  'Simulation')  
+# plt.scatter(time_vect_meanT[::500], W_dot_e[::500], marker="o", s=36, color = 'r',zorder=2,label =  'Experimental')  
+for key in data_heating:    
+    plt.plot(data_heating[key]['time'][::500]/3600, data_heating[key]["W_dot_e"][::500] ,  linewidth = 1.5, label = key)  
+plt.legend(bbox_to_anchor=(0,1.02,1,0.2), loc="lower left",
+                mode="expand", borderaxespad=0, ncol=3, fontsize=14) 
+plt.ylim([0,350])
+plt.xlim([0,13])
+# plt.yticks([])   
+# plt.xticks([0, 2,4,6,8])  
+
+# name = 'Heating_phase_HP'
+# path = '..\\data\\Simulations\\NUOS_valid\\'
+
+# results = wh.procF.open_results(name, path = path)
+
+# T_mean_sim = np.zeros(len(results.T_record1))
+# for k in range(len(results.T_record1)):
+#     T_mean_sim[k] = np.mean(results.T_record1[k]) -273.15
+
+
+# # Avg temperature increase
+# fig, ax = plt.subplots(figsize=(5.5/1.5,4.3/1.5),constrained_layout=True)   
+
+# plt.rcParams.update({'font.size':'16'})
+# params = {
+#           "text.usetex" : True,
+#           "font.family" : "cm"}
+# plt.rcParams.update(params)
+
+# plt.grid()
+# plt.xlabel('Time [h]', fontsize=16)
+# plt.ylabel('Avg temperature [$^\circ$C]',fontsize=16)  
+
+# plt.plot(np.array(results.time_vect)/3600, T_mean_sim , color = 'k',  linewidth = 1.5,zorder=1,label =  'Simulation')  
+# plt.scatter(time_vect_meanT[::2000], T_mean_exp[::2000], marker="o", s=36, color = 'r',zorder=2,label =  'Experimental')  
+
+# plt.ylim([10,50])
+# plt.yticks([10,20,30,40,50])  
+# plt.xticks([0, 2,4,6,8])   
+# plt.legend(bbox_to_anchor=(0.6,1.02), ncol=1, fontsize=12)
+
+# # Error 
+# t_sim = np.array(results.time_vect)
+# T_sim = T_mean_sim
+# t_exp = time_vect_meanT*3600
+# T_exp = T_mean_exp
+
+# # Interpolate the simulated data over the experimental time points
+# interpolator = interp1d(t_sim, T_sim, kind='linear', fill_value='extrapolate')
+# T_sim_interpolated = interpolator(t_exp)
+
+# # Calculate Mean Absolute Error (MAE)
+# mae = np.mean(np.abs(T_sim_interpolated - T_exp))
+# print(f"Mean Absolute Error heating: {mae}")
+
+
+
+
+# # Power consumption
+# del results.time_vect[-1]  
+# fig, ax = plt.subplots(figsize=(5.5/1.5,4.3/1.5),constrained_layout=True)   
+
+# plt.rcParams.update({'font.size':'16'})
+# params = {
+#           "text.usetex" : True,
+#           "font.family" : "cm"}
+# plt.rcParams.update(params)
+
+# plt.grid()
+# plt.xlabel('Time [h]', fontsize=16)
+# plt.ylabel('Power consumtion [W]',fontsize=16)  
+
+# plt.plot(np.array(results.time_vect)/3600, results.W_dot_cons_tot , color = 'k',  linewidth = 1.5,zorder=1,label =  'Simulation')  
+# plt.scatter(time_vect_meanT[::500], W_dot_e[::500], marker="o", s=36, color = 'r',zorder=2,label =  'Experimental')  
+
+ 
+# plt.ylim([150,350])
+# plt.yticks([150,200,250,300,350])   
+# plt.xticks([0, 2,4,6,8])  
+# plt.legend(bbox_to_anchor=(0.6,1.02), ncol=1, fontsize=12)
+
