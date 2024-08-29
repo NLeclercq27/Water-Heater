@@ -4,27 +4,29 @@ This file illustrates the use of the waterheaters library to run a test case
 It loads the main function from the library and provides as parameters the input excel file and the folder where
 the results should be written
 '''
-import os,sys
+
 # include the main library path (the parent folder) in the path environment variable
+import os,sys
 root_folder = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.append(root_folder)
 
 # import the library as a package (defined in __init__.py) => function calls are done through the lpackage (eg om.solve_model)
 import waterheaters as wh
 
+# import other packages
+import numpy as np
+import matplotlib.pyplot as plt
+import time
+
 # -*- coding: utf-8 -*-
 """
 Created on Fri Oct  6 09:48:14 2023
 
-@author: nicol
+@author: Nicolas Leclercq
 """
 
-# import processFunctions as procF
-import numpy as np
-import matplotlib.pyplot as plt
-import time
-import pickle
-from scipy.interpolate import UnivariateSpline
+
+
 
 """
 The model takes as first inputs the storage dimensions:
@@ -47,10 +49,11 @@ The heating system dimensions are then required:
     
 The model empirical parameters need then to be entered: 
     - h_amb: heat exchange with the ambiance
-    - h_ref: heat exchange with the refrigerant
     - delta: parameters mused to model the inversion of layer scheme 
     - H_mix: height of mixing with the supply water at the bottom of the storage tank
+    - V_s: displacement volume of the compressor
     - eps_is: isentropic efficiency of the compressor 
+    - W_dot_el_basis: power consumption of the auxiliaries (evaporator fan, electronics, ...)
     
 Then, it is necessary to initiate the simulation, with the number of division of the storage and the initial temperature distribution vector
 
@@ -70,7 +73,7 @@ If a heat pump is used, the external temperature (that can be equal to the ambie
     
 For one sequence (constant mass flow, temperature setpoint), the outputs are the following (inside the class):
     - self.t_vect: a vector of output time
-    - self.Q_dot_cons_vec: a vector electrical consumption of the WH (in W) with the corresponding time Q_dot_cons_vect
+    - self.Q_dot_cons_vec: a vector of the electrical consumption of the WH (in W) with the corresponding time Q_dot_cons_vect
     - self.T_record[-1]: the temperature profile inside the water storage tank after the sequence
 If you add a sequence, the value will automatically be added to the previous sequence
 """
@@ -90,10 +93,10 @@ double = False # Velis has two storage tank
 NUOS = wh.procF.WaterHeater(Height = Height, Diameter = Diameter, EWH = False, HPWH = True, double = double)
 
 # Definition of the heating system geometry
-NUOS.Heating_system(z_control = 0.29, z_init_E = 0.0, z_init_HP = 0.05, height_E = 0.16, height_HP = 0.25, Q_dot_peak_E = 1000) # !! For one single tank
+NUOS.Heating_system(z_control = 0.29, z_init_E = 0.0, z_init_HP = 0.05, height_E = 0.16, height_HP = 0.25, Q_dot_peak_E = 0) # !! For one single tank
 
 # Tank model empirical parameters 
-NUOS.Model_parameters(h_amb = 0.7, h_ref = 191, delta = 10000, H_mix = 0.2, eps_is = 0.65, W_dot_el_basis = 100)
+NUOS.Model_parameters(h_amb = 0.7, delta = 10000, H_mix = 0.2, V_s = 5/1e6, W_dot_el_basis = 100)
 
 #MN model initialization
 nx = 40
@@ -121,10 +124,10 @@ NUOS.MN_model_init(nx, T_vect_init)
 
 # Simulation constant variables
 T_w_supply = 15.39 + 273.15 # degC
-T_amb = 25 + 273.15
+T_amb = 0+ 273.15
 
 ### Input variable
-T_SP = 50 + 273.15
+T_SP = 53 + 273.15
 T_ext = T_amb
 
 #%% Simulation
@@ -215,7 +218,7 @@ print('Remaining time:', str(t_remaining), 's')
 
 #%% SAVE RESULTS 
 
-name = 'Heating25'
+name = 'Heating0'
    
 wh.procF.save_results(name, NUOS)
     

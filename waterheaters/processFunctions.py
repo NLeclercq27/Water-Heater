@@ -67,14 +67,13 @@ class WaterHeater():
         self.param_heating = {'z_control': z_control, 'z_init_E' : z_init_E, 'z_init_HP' : z_init_HP, 'height_E' : height_E,
                                'height_HP' : height_HP, 'Q_dot_peak_E' : Q_dot_peak_E}
         
-    def Model_parameters(self, h_amb = 0, h_ref = 0, delta = 10000, H_mix = 0, eps_is = 0.6, W_dot_el_basis = 50):
-        
+    def Model_parameters(self, h_amb = 0, delta = 10000, H_mix = 0, V_s = 10/1e6, W_dot_el_basis = 50):
+
         """
         Initialization of the model parameters
         
         Inputs:
             h_amb: heat transfer coefficient with the ambiance (empirical)
-            h_ref: heat transfer coefficient from the refrigerant to the water (empirical)
             s: averaged boudary temperature correction coefficient (empirical)
             delta: coefficient taking into account the reversing effect du to density difference between two adjacent layers
             H_mix: height of mixing in meters to ditribute the inlet mass flow rate
@@ -82,11 +81,9 @@ class WaterHeater():
         """
         if self.HPWH == True:
             self.refrigerant = 'propane' # only used in the case where a Heat Pump water heater is used
-            eps_is = 0.7 # assumption
         else:
             self.refrigerant = None 
-            eps_is = None 
-        self.MParam = {'h_amb' : h_amb, 'h_ref' : h_ref, 'delta' : delta, 'H_mix' : H_mix, 'eps_is' : eps_is, 'W_dot_el_basis' : W_dot_el_basis}       
+        self.MParam = {'h_amb' : h_amb, 'delta' : delta, 'H_mix' : H_mix, 'V_s' : V_s, 'W_dot_el_basis' : W_dot_el_basis}       
 
 
         
@@ -223,12 +220,7 @@ class WaterHeater():
         # Surface between two layers 
         A_bound = self.Diameter**2*np.pi/4
         
-        # Case where a refrigerant circuit is used 
-        h_ref = 0
-                
-        if self.HPWH == True:
-            h_ref = self.MParam['h_ref'] #W/(m^2K)
-            
+
             
         # Case where an electrical resistor is used 
         Q_dot_E_layer = 0
@@ -284,17 +276,13 @@ class WaterHeater():
                 # water temperature 
                 # Check if any values in self.k_HPWH are equal to 1
                 if self.HPWH == True:
-                    # Get the first matching value from the T array
-                    # Highest temperature where the water is heated (pinch point at Q = 1)
-                    T_w_out_ev = max(T_1[self.k_HPWH == 1])
-                    pp_cd = 5 #K
-                    delta = (T_amb - 273.15)/3
-                    pp_cd = 5 + delta #K
-                    T_ref = T_w_out_ev + pp_cd
-                    # Chose the pressure reference with a pinch point of 5K at a quality Q = 1
-                    P_ref = PropsSI( 'P',  'T', T_ref, 'Q', 0.5, self.refrigerant)
-                else:
-                    T_ref = 273.15
+                    W_dot_cons_HP, Q_dot_cd, COP = self.HP_cycle(T_1, switch1, T_ext)
+                    self.COP.append(COP)
+                    Q_dot_cd_i = Q_dot_cd/sum(self.k_HPWH)
+                else :
+                    W_dot_cons_HP = 0
+                    Q_dot_cd_i = 0
+                    self.COP.append(None)    
 
                  
                 # Loop on the storage size to fill in the matrices
@@ -308,7 +296,7 @@ class WaterHeater():
                         
                     if i == 0: 
                         self.A1[0][0] = self.layer["m"][0]*self.prop_dict['cp_sto']/dt + m_dot*self.prop_dict['cp_sto'] + K[0]*A_bound/self.dx[0] - self.prop_dict['alpha_sto']*self.layer["m"][0]*self.prop_dict['cp_sto']/self.dx[0]**2 \
-                            + h_amb*self.layer["A_wall_amb"][0] + switch1*self.k_HPWH[0]*h_ref*self.layer["A_wall"][0]
+                            + h_amb*self.layer["A_wall_amb"][0] 
                             
                         self.A1[0][1] = -m_dot*self.prop_dict['cp_sto'] + self.prop_dict['alpha_sto']*self.layer["m"][0]*self.prop_dict['cp_sto']*(1/self.dx[0]**2 + 1/self.dx[1]**2) - K[0]*A_bound/self.dx[0]
                         
@@ -317,7 +305,7 @@ class WaterHeater():
                         self.B1[0][0] = - self.layer["m"][0]*self.prop_dict['cp_sto']/dt
                         
                         self.C1[0] = -h_amb*self.layer["A_wall_amb"][0]*T_amb - switch1*self.k_EWH[0]*Q_dot_E_layer_vect[0] \
-                            - switch1*self.k_HPWH[0]*h_ref*self.layer["A_wall"][0]*T_ref
+                            - switch1*self.k_HPWH[0]*Q_dot_cd_i
                             
                     elif i > self.layer['nx']-1 - self.k_l: 
                         
@@ -330,12 +318,12 @@ class WaterHeater():
                             self.A1[nx_new][nx_new - 1] = self.prop_dict['alpha_sto']*self.layer["m"][nx_new]*self.prop_dict['cp_sto']*(1/self.dx[nx_new-1]**2 + 1/self.dx[nx_new-2]**2) - K[nx_new-1]*A_bound/self.dx[nx_new-1]
                             
                             self.A1[nx_new][nx_new] = self.layer["m"][nx_new]*self.prop_dict['cp_sto']/dt + m_dot/self.k_l*self.prop_dict['cp_sto'] - self.prop_dict['alpha_sto']*self.layer["m"][nx_new]*self.prop_dict['cp_sto']/self.dx[nx_new-1]**2 + h_amb*self.layer["A_wall_amb"][nx_new] \
-                                + switch1*self.k_HPWH[nx_new]*h_ref*self.layer["A_wall"][nx_new] + K[nx_new-1]*A_bound/self.dx[nx_new-1]
+                               + K[nx_new-1]*A_bound/self.dx[nx_new-1]
                                 
                             self.B1[nx_new][nx_new] = - self.layer["m"][nx_new]*self.prop_dict['cp_sto']/dt
                             
                             self.C1[nx_new] = -h_amb*self.layer["A_wall_amb"][nx_new]*T_amb - switch1*self.k_EWH[nx_new]*Q_dot_E_layer_vect[nx_new] \
-                                - switch1*self.k_HPWH[nx_new]*h_ref*self.layer["A_wall"][nx_new]*T_ref - m_dot/self.k_l*self.prop_dict['cp_sto']*T_w_supply
+                                - switch1*self.k_HPWH[nx_new]*Q_dot_cd_i- m_dot/self.k_l*self.prop_dict['cp_sto']*T_w_supply
                           ## case of the remaining cells with injection     
                         else:
                             
@@ -349,12 +337,12 @@ class WaterHeater():
                             
                             self.A1[i][i] = self.prop_dict['alpha_sto']*self.layer["m"][i]*self.prop_dict['cp_sto']*(1/self.dx[i]**2 + 1/self.dx[i-1]**2) \
                                 + self.layer["m"][i]*self.prop_dict['cp_sto']/dt + m_dot*frac_out*self.prop_dict['cp_sto'] + h_amb*self.layer["A_wall_amb"][i] \
-                                + switch1*self.k_HPWH[i]*h_ref*self.layer["A_wall"][i] + K[i]*A_bound/self.dx[i] + K[i-1]*A_bound/self.dx[i-1]
+                                 + K[i]*A_bound/self.dx[i] + K[i-1]*A_bound/self.dx[i-1]
                             
                             self.B1[i][i] = - self.layer["m"][i]*self.prop_dict['cp_sto']/dt
                             
                             self.C1[i] = -h_amb*self.layer["A_wall_amb"][i]*T_amb - switch1*self.k_EWH[i]*Q_dot_E_layer_vect[i] \
-                                - switch1*self.k_HPWH[i]*h_ref*self.layer["A_wall"][i]*T_ref - m_dot/self.k_l*self.prop_dict['cp_sto']*T_w_supply
+                                - switch1*self.k_HPWH[i]*Q_dot_cd_i - m_dot/self.k_l*self.prop_dict['cp_sto']*T_w_supply
                             
                             
                     else: 
@@ -364,12 +352,12 @@ class WaterHeater():
                         
                         self.A1[i][i] = self.prop_dict['alpha_sto']*self.layer["m"][i]*self.prop_dict['cp_sto']*(1/self.dx[i]**2 + 1/self.dx[i-1]**2) \
                             + self.layer["m"][i]*self.prop_dict['cp_sto']/dt + m_dot*self.prop_dict['cp_sto'] + h_amb*self.layer["A_wall_amb"][i] \
-                            + switch1*self.k_HPWH[i]*h_ref*self.layer["A_wall"][i] + K[i]*A_bound/self.dx[i] + K[i-1]*A_bound/self.dx[i-1]
+                             + K[i]*A_bound/self.dx[i] + K[i-1]*A_bound/self.dx[i-1]
                         
                         self.B1[i][i] = - self.layer["m"][i]*self.prop_dict['cp_sto']/dt
                         
                         self.C1[i] = -h_amb*self.layer["A_wall_amb"][i]*T_amb - switch1*self.k_EWH[i]*Q_dot_E_layer_vect[i] \
-                            - switch1*self.k_HPWH[i]*h_ref*self.layer["A_wall"][i]*T_ref  
+                            - switch1*self.k_HPWH[i]*Q_dot_cd_i
                         
                 toc_building_1 = counter.perf_counter()
                 self.perf_building.append(toc_building_1 - tic_building_1)
@@ -382,7 +370,7 @@ class WaterHeater():
             self.perf_solving.append(toc_solving_1 - tic_solving_1)
             
             # Vector of power exchanges
-            Q_dot_ref_vect = switch1*self.k_HPWH*h_ref*self.layer["A_wall"]*(T_ref - T_1)
+            Q_dot_ref_vect = switch1*self.k_HPWH*Q_dot_cd_i
             Q_dot_amb_vect = -h_amb*self.layer["A_wall_amb"]*(T_1 - T_amb)
             Q_dot_E_vect = switch1*Q_dot_E_layer_vect
             self.W_dot_cons_1.append(sum(Q_dot_E_vect))
@@ -424,7 +412,7 @@ class WaterHeater():
                             
                         if i == 0: 
                             self.A2[0][0] = self.layer["m"][0]*self.prop_dict['cp_sto']/dt + m_dot*self.prop_dict['cp_sto'] + K2[0]*A_bound/self.dx[0] - self.prop_dict['alpha_sto']*self.layer["m"][0]*self.prop_dict['cp_sto']/self.dx[0]**2 \
-                                + h_amb*self.layer["A_wall_amb"][0] + switch2*self.k_HPWH[0]*h_ref*self.layer["A_wall"][0]
+                                + h_amb*self.layer["A_wall_amb"][0] 
                                 
                             self.A2[0][1] = -m_dot*self.prop_dict['cp_sto'] + self.prop_dict['alpha_sto']*self.layer["m"][0]*self.prop_dict['cp_sto']*(1/self.dx[0]**2 + 1/self.dx[1]**2) - K2[0]*A_bound/self.dx[0]
                             
@@ -433,7 +421,7 @@ class WaterHeater():
                             self.B2[0][0] = - self.layer["m"][0]*self.prop_dict['cp_sto']/dt
                             
                             self.C2[0] = -h_amb*self.layer["A_wall_amb"][0]*T_amb - switch2*self.k_EWH[0]*Q_dot_E_layer_vect[0] \
-                                - switch2*self.k_HPWH[0]*h_ref*self.layer["A_wall"][0]*T_ref
+                               
                         
                         elif i > self.layer['nx']-1 - self.k_l: 
                             nx_new = self.layer['nx']-1
@@ -444,12 +432,12 @@ class WaterHeater():
                                 self.A2[nx_new][nx_new - 1] = self.prop_dict['alpha_sto']*self.layer["m"][nx_new]*self.prop_dict['cp_sto']*(1/self.dx[nx_new-1]**2 + 1/self.dx[nx_new-2]**2) - K2[nx_new-1]*A_bound/self.dx[nx_new-1]
                                 
                                 self.A2[nx_new][nx_new] = self.layer["m"][nx_new]*self.prop_dict['cp_sto']/dt + m_dot/self.k_l*self.prop_dict['cp_sto'] - self.prop_dict['alpha_sto']*self.layer["m"][nx_new]*self.prop_dict['cp_sto']/self.dx[nx_new-1]**2 + h_amb*self.layer["A_wall_amb"][nx_new] \
-                                    + switch2*self.k_HPWH[nx_new]*h_ref*self.layer["A_wall"][nx_new] + K2[nx_new-1]*A_bound/self.dx[nx_new-1]
+                                     + K2[nx_new-1]*A_bound/self.dx[nx_new-1]
                                     
                                 self.B2[nx_new][nx_new] = - self.layer["m"][nx_new]*self.prop_dict['cp_sto']/dt
                                 
                                 self.C2[nx_new] = -h_amb*self.layer["A_wall_amb"][nx_new]*T_amb - switch2*self.k_EWH[nx_new]*Q_dot_E_layer_vect[nx_new] \
-                                    - switch2*self.k_HPWH[nx_new]*h_ref*self.layer["A_wall"][nx_new]*T_ref - m_dot/self.k_l*self.prop_dict['cp_sto']*T_supply_tank2
+                                     - m_dot/self.k_l*self.prop_dict['cp_sto']*T_supply_tank2
                             
                     
                               ## case of the remaining cells with injection     
@@ -465,12 +453,12 @@ class WaterHeater():
                                 
                                 self.A2[i][i] = self.prop_dict['alpha_sto']*self.layer["m"][i]*self.prop_dict['cp_sto']*(1/self.dx[i]**2 + 1/self.dx[i-1]**2) \
                                     + self.layer["m"][i]*self.prop_dict['cp_sto']/dt + m_dot*frac_out*self.prop_dict['cp_sto'] + h_amb*self.layer["A_wall_amb"][i] \
-                                    + switch1*self.k_HPWH[i]*h_ref*self.layer["A_wall"][i] + K2[i]*A_bound/self.dx[i] + K2[i-1]*A_bound/self.dx[i-1]
+                                   + K2[i]*A_bound/self.dx[i] + K2[i-1]*A_bound/self.dx[i-1]
                                 
                                 self.B2[i][i] = - self.layer["m"][i]*self.prop_dict['cp_sto']/dt
                                 
                                 self.C2[i] = -h_amb*self.layer["A_wall_amb"][i]*T_amb - switch2*self.k_EWH[i]*Q_dot_E_layer_vect[i] \
-                                    - switch2*self.k_HPWH[i]*h_ref*self.layer["A_wall"][i]*T_ref - m_dot/self.k_l*self.prop_dict['cp_sto']*T_supply_tank2
+                                     - m_dot/self.k_l*self.prop_dict['cp_sto']*T_supply_tank2
                                 
                   
                         else: 
@@ -480,12 +468,12 @@ class WaterHeater():
                             
                             self.A2[i][i] = self.prop_dict['alpha_sto']*self.layer["m"][i]*self.prop_dict['cp_sto']*(1/self.dx[i]**2 + 1/self.dx[i-1]**2) \
                                 + self.layer["m"][i]*self.prop_dict['cp_sto']/dt + m_dot*self.prop_dict['cp_sto'] + h_amb*self.layer["A_wall_amb"][i] \
-                                + switch2*self.k_HPWH[i]*h_ref*self.layer["A_wall"][i] + K2[i]*A_bound/self.dx[i] + K2[i-1]*A_bound/self.dx[i-1]
+                              + K2[i]*A_bound/self.dx[i] + K2[i-1]*A_bound/self.dx[i-1]
                             
                             self.B2[i][i] = - self.layer["m"][i]*self.prop_dict['cp_sto']/dt
                             
                             self.C2[i] = -h_amb*self.layer["A_wall_amb"][i]*T_amb - switch2*self.k_EWH[i]*Q_dot_E_layer_vect[i] \
-                                - switch2*self.k_HPWH[i]*h_ref*self.layer["A_wall"][i]*T_ref           
+                
                     toc_building_2 = counter.perf_counter() 
                     self.perf_building.append(toc_building_2 - tic_building_2)
                 
@@ -518,13 +506,7 @@ class WaterHeater():
             self.T_w_out.append(T_out)
 
             
-            # Total electrial consumption
-            if self.HPWH == True:
-                W_dot_cons_HP, COP = self.HP_cycle(self.Q_dot_ref[-1], P_ref, T_ext)
-                self.COP.append(COP)
-            else :
-                W_dot_cons_HP = 0
-                self.COP.append(None)
+
                     
             self.W_dot_cons_HP.append(W_dot_cons_HP)
             self.W_dot_cons_tot.append(self.HPWH*self.W_dot_cons_HP[-1] + self.EWH*self.Q_dot_E[-1])
@@ -594,9 +576,19 @@ class WaterHeater():
 
         return switch1, switch2
     
-    def HP_cycle(self, Q_dot_ref, P_cd, T_ext):
+    def HP_cycle(self,T_1, switch1, T_ext):
         
         """Function analyzing the heat pump cycle, allowing to retrieve the compressor electrical consumption"""
+        
+        # Get the first matching value from the T array
+        # Highest temperature where the water is heated (pinch point = 0 )
+        T_w_max = max(T_1[self.k_HPWH == 1])
+        SC = 5  #K
+        T_sat_cd = T_w_max + SC
+        # Subcooling of 5K used to get the saturation pressure
+        P_cd = PropsSI( 'P',  'T', T_sat_cd, 'Q', 0.5, self.refrigerant)
+        
+        
         
         # Heat source ref pressure
         pp_ev = 10 #K
@@ -606,28 +598,34 @@ class WaterHeater():
         
         # Compressor analysis
         h_su_cp = PropsSI( 'H',  'T', T_sat_ev  + SH, 'P', P_ev, self.refrigerant)
+        rho_su_cp = PropsSI( 'D',  'T', T_sat_ev  + SH, 'P', P_ev, self.refrigerant)
         s_su_cp = PropsSI( 'S',  'T', T_sat_ev  + SH, 'P', P_ev, self.refrigerant)
         h_is_cp = PropsSI( 'H',  'S', s_su_cp, 'P', P_cd, self.refrigerant)
         w_is = h_is_cp - h_su_cp
         
-        P_ratio = P_cd/P_ev
-        # eps_is = -(0.35* P_ratio -0.8)**2 + self.MParam['eps_is']
-        eps_is = self.MParam['eps_is']
+        f = 50*0.97 # Hz
+        V_s = 5/1e6 # cubic meter
+        V_dot_cp = f*V_s # cm per second
+        m_dot_cp_th = rho_su_cp*V_dot_cp # kg/second
+        eps_v = 0.8
+        eps_is = 0.75
+        m_dot_cp = m_dot_cp_th * eps_v
+
         w = w_is/eps_is
-        
-        # Cd analysis
-        h_su_cd_real = h_su_cp + w
-        h_su_cd = PropsSI( 'H',  'Q', 1, 'P', P_cd, self.refrigerant)
-        h_ex_cd = PropsSI( 'H',  'Q', 0, 'P', P_cd, self.refrigerant)
-        m_dot_ref = Q_dot_ref/(h_su_cd - h_ex_cd)
-        Q_dot_cd_real = m_dot_ref*(h_su_cd_real - h_ex_cd)
-        if m_dot_ref != 0:
-            W_dot_cp_el = w*m_dot_ref + self.MParam['W_dot_el_basis']
+        if switch1 != 0:
+            W_dot_cp_el = w*m_dot_cp_th + self.MParam['W_dot_el_basis']
         else: 
             W_dot_cp_el = 0
-        COP = Q_dot_ref/(W_dot_cp_el+1e-6)
+            
         
-        return W_dot_cp_el, COP
+        # Cd analysis
+        h_su_cd = h_su_cp + w
+        h_ex_cd = PropsSI( 'H',  'T', T_w_max, 'P', P_cd, self.refrigerant)
+        Q_dot_cd = m_dot_cp*(h_su_cd - h_ex_cd)
+           
+        COP = Q_dot_cd/(W_dot_cp_el+1e-6)
+
+        return W_dot_cp_el, Q_dot_cd, COP
             
         
     def plotTPoints(self):

@@ -546,7 +546,7 @@ for key in data_heating:
     diff = data_heating[key]['T_mean_exp'][0] - T_init
     data_heating[key]['T_mean_exp'] = data_heating[key]['T_mean_exp']  - diff
     
-    
+    data_heating[key]['T_mean_exp'][3600]
     
     
 #%% Plots
@@ -569,7 +569,82 @@ plt.xlim([0,13])
 plt.yticks([10,20,30,40,50,60])  
 # plt.xticks([0, 2,4,6,8])   
 # plt.legend(bbox_to_anchor=(0.6,1.02), ncol=6, fontsize=12)
-plt.legend(bbox_to_anchor=(0,1.02,1,0.2), loc="lower left",
+# plt.legend(bbox_to_anchor=(0,1.02,1,0.102), loc='lower left',
+#                 mode="expand", borderaxespad=0, ncol=3, fontsize=14)
+plt.legend(bbox_to_anchor=(0,1.02,1,0.102), loc='lower left',mode="expand", borderaxespad=0, ncol=3,fontsize=14)
+
+
+#####################################################################
+
+
+fig, ax = plt.subplots(figsize=(5.5/1.5,4.3/1.3),constrained_layout=True)   
+plt.rcParams.update({'font.size':'16'})
+params = {
+          "text.usetex" : True,
+          "font.family" : "cm"}
+plt.rcParams.update(params)
+plt.grid()
+plt.xlabel('Time [h]', fontsize=16)
+plt.ylabel('Power consumption [W]',fontsize=16)  
+# plt.plot(np.array(results.time_vect)/3600, results.W_dot_cons_tot , color = 'k',  linewidth = 1.5,zorder=1,label =  'Simulation')  
+# plt.scatter(time_vect_meanT[::500], W_dot_e[::500], marker="o", s=36, color = 'r',zorder=2,label =  'Experimental')  
+for key in data_heating:    
+    plt.plot(data_heating[key]['time'][::500]/3600, data_heating[key]["W_dot_e"][::500] ,  linewidth = 1.5, label = key)  
+plt.legend(bbox_to_anchor=(0,1.02,1,0.102), loc='lower left',
+                mode="expand", borderaxespad=0, ncol=3, fontsize=14)
+plt.ylim([0,400])
+plt.xlim([0,13])
+
+#%% Simulation part
+
+
+"""Read simulation file"""
+names = ['Heating0', 'Heating5', 'Heating10', 'Heating15', 'Heating20', 'Heating25']
+path = '..\\data\\Simulations\\NUOS_valid\\'
+sim_results = {}
+
+sim_results['25C'] = wh.procF.open_results(names[5], path = path)
+sim_results['20C'] = wh.procF.open_results(names[4], path = path)
+sim_results['15C'] = wh.procF.open_results(names[3], path = path)
+sim_results['10C'] = wh.procF.open_results(names[2], path = path)
+sim_results['5C'] = wh.procF.open_results(names[1], path = path)
+sim_results['0C'] = wh.procF.open_results(names[0], path = path)
+
+
+for key in sim_results: 
+    time_step = np.zeros(len(sim_results[key].time_vect) - 1)
+    for i in range(len(time_step)):
+        time_step[i] = sim_results[key].time_vect[i+1] - sim_results[key].time_vect[i]
+    sim_results[key].E_cons_e = sum(sim_results[key].W_dot_cons_tot*time_step)/3600/1000
+    sim_results[key].rel_err = (data_heating[key]['E_tot'] - sim_results[key].E_cons_e)/sim_results[key].E_cons_e*100
+    print(key, sim_results[key].rel_err, '%')
+    sim_results[key].T_mean_sim = np.zeros(len(sim_results[key].T_record1))
+    for k in range(len(sim_results[key].T_record1)):
+        sim_results[key].T_mean_sim[k] = np.mean(sim_results[key].T_record1[k]) -273.15
+        
+        
+        
+### Plots
+fig, ax = plt.subplots(figsize=(5.5/1.5,4.3/1.3),constrained_layout=True)   
+plt.rcParams.update({'font.size':'16'})
+params = {
+          "text.usetex" : True,
+          "font.family" : "cm"}
+plt.rcParams.update(params)
+plt.grid()
+plt.xlabel('Time [h]', fontsize=16)
+plt.ylabel('Avg temperature [$^\circ$C]',fontsize=16)  
+
+for key in sim_results:
+    # plt.plot(np.array(results.time_vect)/3600, T_mean_sim , color = 'k',  linewidth = 1.5,zorder=1,label =  'Simulation')  
+    # plt.scatter(time_vect_meanT[::2000], T_mean_exp[::2000], marker="o", s=36, color = 'r',zorder=2,label =  'Experimental')  
+    plt.plot(np.array(sim_results[key].time_vect)/3600, sim_results[key].T_mean_sim,  linewidth = 1.5, label = key)  
+plt.ylim([10,60])
+plt.xlim([0,13])
+plt.yticks([10,20,30,40,50,60])  
+# plt.xticks([0, 2,4,6,8])   
+# plt.legend(bbox_to_anchor=(0.6,1.02), ncol=6, fontsize=12)
+plt.legend(bbox_to_anchor=(0,1.02,1,0.102), loc='lower left',
                 mode="expand", borderaxespad=0, ncol=3, fontsize=14)
 
 
@@ -584,15 +659,16 @@ params = {
 plt.rcParams.update(params)
 plt.grid()
 plt.xlabel('Time [h]', fontsize=16)
-plt.ylabel('Power consumtion [W]',fontsize=16)  
+plt.ylabel('Power consumption [W]',fontsize=16)  
 # plt.plot(np.array(results.time_vect)/3600, results.W_dot_cons_tot , color = 'k',  linewidth = 1.5,zorder=1,label =  'Simulation')  
 # plt.scatter(time_vect_meanT[::500], W_dot_e[::500], marker="o", s=36, color = 'r',zorder=2,label =  'Experimental')  
 for key in data_heating:    
-    plt.plot(data_heating[key]['time'][::500]/3600, data_heating[key]["W_dot_e"][::500] ,  linewidth = 1.5, label = key)  
-plt.legend(bbox_to_anchor=(0,1.02,1,0.2), loc="lower left",
-                mode="expand", borderaxespad=0, ncol=3, fontsize=14) 
-plt.ylim([0,350])
+    plt.plot(np.array(sim_results[key].time_vect)[1:]/3600, sim_results[key].W_dot_cons_tot ,  linewidth = 1.5, label = key)  
+plt.legend(bbox_to_anchor=(0,1.02,1,0.102), loc='lower left',
+                mode="expand", borderaxespad=0, ncol=3, fontsize=14)
+plt.ylim([0,400])
 plt.xlim([0,13])
+    
 # plt.yticks([])   
 # plt.xticks([0, 2,4,6,8])  
 
