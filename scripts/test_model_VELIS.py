@@ -11,7 +11,7 @@ root_folder = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.append(root_folder)
 
 # import the library as a package (defined in __init__.py) => function calls are done through the lpackage (eg om.solve_model)
-import waterheaters as wh
+import source as procF
 
 # import other packages
 import numpy as np
@@ -88,7 +88,7 @@ Height = 0.93 # m
 double = True # Velis has two storage tank 
 
 # Model creation
-VELIS = wh.procF.WaterHeater(Height = Height, Diameter = Diameter, EWH = True, HPWH = False, double = double)
+VELIS = procF.wh.WaterHeater(Height = Height, Diameter = Diameter, EWH = True, HPWH = False, double = double)
 
 # Definition of the heating system geometry
 VELIS.Heating_system(z_control = 0.3, z_init_E = 0.0, z_init_HP = 0.0, height_E = 0.3, height_HP = 0.25, Q_dot_peak_E = 1250) # !! For one single tank
@@ -214,5 +214,5 @@ print('Remaining time:', str(t_remaining), 's')
 
 name = '24h_scenario_bis'
    
-wh.procF.save_results(name, VELIS)
+procF.wh.save_results(name, VELIS)
     
