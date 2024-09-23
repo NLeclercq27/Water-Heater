@@ -108,13 +108,13 @@ T_w_supply = 15.25 + 273.15 # degC
 T_amb = 17.84 + 273.15
 
 ### Input variable
-T_SP = 80 + 273.15
+T_SP = 60 + 273.15
 T_ext = 10 + 273.15 #
 
 #%% Simulation
 plt.close("all")
 
-dt_cha = 60 #time step of a charge
+dt_cha = 120 #time step of a charge
 dt_dis = 2 #time step of a discharge
 tic_model = time.perf_counter()
 
@@ -128,14 +128,14 @@ for i in range(1): # One day, can be changed to simulate several times the same 
     
     # First simulation 6 hours of heating
     dt = dt_cha# seconds
-    time_sq = 3600*4.938 # seconds
+    time_sq = 3600*6 # seconds
     m_dot = 0
     VELIS.MN_model(dt, time_sq, m_dot, T_w_supply, T_amb, T_SP, T_ext)
     
     # Second simulation 10 minutes of hot water use (42 Liters in total)
     dt = dt_dis
     time_sq = 600
-    m_dot = 0.08 # kg/s
+    m_dot = 0.080 # kg/s
     VELIS.MN_model(dt, time_sq, m_dot, T_w_supply, T_amb, T_SP, T_ext)
 
     

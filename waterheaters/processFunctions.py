@@ -14,7 +14,7 @@ import pickle
 import os
 
 class WaterHeater():
-    def __init__(self, Volume = None, Diameter = None, Height = None, EWH = False, HPWH = False, double = False):
+    def __init__(self, Model = '', Volume = None, Diameter = None, Height = None, EWH = False, HPWH = False, double = False):
         
         """
         Initialization of the WaterHeater
@@ -28,14 +28,20 @@ class WaterHeater():
             refrigerant: type of refrigerant required for HPWH
             double: True for the VELIS (two storage tanks)
         """
+        
+        self.Model = Model
         self.fluid = 'water'
         self.Volume = Volume
         self.Diameter = Diameter
-        if self.Volume != None:
+        self.Height = Height
+        if self.Volume != None and self.Diameter != None:
             self.Height = self.Volume*4/np.pi/self.Diameter**2 # height of the storage
-        else :
-            self.Height = Height
-            self.Volume = self.Height*np.pi*self.Diameter**2/4
+        elif self.Volume != None and self.Height != None:
+            self.Diameter = np.sqrt(self.Volume*4/np.pi/self.Height)
+        else:
+            self.Volume = self.Height*np.pi*self.Diameter**2/4 
+        
+            
         self.EWH = EWH # check if the heater is electric
         self.HPWH = HPWH # check if the heater is a heat pump 
         # Without EWH and HPWH, the tank is just a storage tank
@@ -50,9 +56,11 @@ class WaterHeater():
             self.tank_number = 1
 
         self.Total_volume = self.Volume*self.tank_number
+        self.switch1 = False
+        self.switch2 = False
+        
 
-
-    def Heating_system(self, z_control = 0.0, z_init_E = 0.0, z_init_HP = 0.0, height_E = 0.0, height_HP = 0.0, Q_dot_peak_E = 0):
+    def Heating_system(self,  z_control = 0.0, z_init_E = 0.0, z_init_HP = 0.0, height_E = 0.0, height_HP = 0.0, Q_dot_peak_E = 0):
         """
         Initialization of the heating system if required 
         
@@ -67,7 +75,7 @@ class WaterHeater():
         self.param_heating = {'z_control': z_control, 'z_init_E' : z_init_E, 'z_init_HP' : z_init_HP, 'height_E' : height_E,
                                'height_HP' : height_HP, 'Q_dot_peak_E' : Q_dot_peak_E}
         
-    def Model_parameters(self, h_amb = 0, delta = 10000, H_mix = 0, V_s = 10/1e6, W_dot_el_basis = 50):
+    def Model_parameters(self, h_amb = 0, delta = 10000, H_mix = 0.15, V_s = 10/1e6, W_dot_el_basis = 50):
 
         """
         Initialization of the model parameters
@@ -201,22 +209,24 @@ class WaterHeater():
             T_ext: external temperature for the HP - K
         """
         # new sequence of sim launched
-        new_sim = True
-        
-        # Matrices initialization
-        
-        # Initiliaze the matrix size
-        self.A1 = np.zeros([self.layer['nx'],self.layer['nx']])
-        self.B1 = np.zeros([self.layer['nx'],self.layer['nx']])
-        self.C1 = np.zeros([self.layer['nx']])
-        K = np.zeros([self.layer['nx']])
-        
-        if self.double == True:
+        if not hasattr(self, 'new_sim'):
+            self.new_sim = True
+            # Matrices initialization
+
             # Initiliaze the matrix size
-            self.A2 = np.zeros([self.layer['nx'],self.layer['nx']])
-            self.B2 = np.zeros([self.layer['nx'],self.layer['nx']])
-            self.C2 = np.zeros([self.layer['nx']])
-            K2 = np.zeros([self.layer['nx']])            
+            self.A1 = np.zeros([self.layer['nx'],self.layer['nx']])
+            self.B1 = np.zeros([self.layer['nx'],self.layer['nx']])
+            self.C1 = np.zeros([self.layer['nx']])
+
+            if self.double == True:
+                # Initiliaze the matrix size
+                self.A2 = np.zeros([self.layer['nx'],self.layer['nx']])
+                self.B2 = np.zeros([self.layer['nx'],self.layer['nx']])
+                self.C2 = np.zeros([self.layer['nx']])
+                
+                
+        K = np.zeros([self.layer['nx']])
+        K2 = np.zeros([self.layer['nx']])  
         # Surface between two layers 
         A_bound = self.Diameter**2*np.pi/4
         
@@ -249,40 +259,42 @@ class WaterHeater():
                 if vector[i] > vector[i-1] + T_diff_tol:
                     return True
             return False
-        
-        switch1 = 0
-        switch2 = 0
+        if not hasattr(self, 'switch1'):
+            self.switch1 = 0
+            self.switch2 = 0
         for t in range(int(round(time/dt,0))):
             
             
             # Check if the system is heating or not (condition inside the function)
-            switch1_pre = switch1
+            switch1_pre = self.switch1
 
             if self.double == False:
-                switch1, _ = self.control(self.layer['nx'], T_1, T_SP, switch1_pre)
+                self.switch1, _ = self.control(self.layer['nx'], T_1, T_SP, switch1_pre)
             else: 
-                switch2_pre = switch2
-                switch1, switch2 = self.control(self.layer['nx'], T_1, T_SP, switch1_pre, switch2_pre = switch2_pre, T2 = T_2)
+                switch2_pre = self.switch2
+                self.switch1, self.switch2 = self.control(self.layer['nx'], T_1, T_SP, switch1_pre, switch2_pre = switch2_pre, T2 = T_2)
                 
             # increasing to check if a layer is not warmer below a hot layer --> K_i changing
             # switch if a change is noticed the matrices need to be changed --> switch changing
             # new_sim as calculation is needed for the first sim
             # switch == 1 if heating K_i will automatically change
             
-            if is_increasing(T_1) or switch1 != switch1_pre or new_sim or switch1 == 1:
+            # water temperature 
+            # Check if any values in self.k_HPWH are equal to 1
+            if self.HPWH == True:
+                W_dot_cons_HP, Q_dot_cd, COP = self.HP_cycle(T_1, self.switch1, T_ext)
+                self.COP.append(COP)
+                Q_dot_cd_i = Q_dot_cd/sum(self.k_HPWH)
+            else :
+                W_dot_cons_HP = 0
+                Q_dot_cd_i = 0
+                self.COP.append(None)  
+
+            if is_increasing(T_1) or self.switch1 != switch1_pre or self.new_sim or self.switch1 == 1:
                 tic_building_1 = counter.perf_counter()
                 #not(hasattr(self, 'A')) condition for the creation of the matrix, not in use anymore
-
-                # water temperature 
-                # Check if any values in self.k_HPWH are equal to 1
-                if self.HPWH == True:
-                    W_dot_cons_HP, Q_dot_cd, COP = self.HP_cycle(T_1, switch1, T_ext)
-                    self.COP.append(COP)
-                    Q_dot_cd_i = Q_dot_cd/sum(self.k_HPWH)
-                else :
-                    W_dot_cons_HP = 0
-                    Q_dot_cd_i = 0
-                    self.COP.append(None)    
+                
+  
 
                  
                 # Loop on the storage size to fill in the matrices
@@ -304,8 +316,8 @@ class WaterHeater():
                         
                         self.B1[0][0] = - self.layer["m"][0]*self.prop_dict['cp_sto']/dt
                         
-                        self.C1[0] = -h_amb*self.layer["A_wall_amb"][0]*T_amb - switch1*self.k_EWH[0]*Q_dot_E_layer_vect[0] \
-                            - switch1*self.k_HPWH[0]*Q_dot_cd_i
+                        self.C1[0] = -h_amb*self.layer["A_wall_amb"][0]*T_amb - self.switch1*self.k_EWH[0]*Q_dot_E_layer_vect[0] \
+                            - self.switch1*self.k_HPWH[0]*Q_dot_cd_i
                             
                     elif i > self.layer['nx']-1 - self.k_l: 
                         
@@ -322,8 +334,8 @@ class WaterHeater():
                                 
                             self.B1[nx_new][nx_new] = - self.layer["m"][nx_new]*self.prop_dict['cp_sto']/dt
                             
-                            self.C1[nx_new] = -h_amb*self.layer["A_wall_amb"][nx_new]*T_amb - switch1*self.k_EWH[nx_new]*Q_dot_E_layer_vect[nx_new] \
-                                - switch1*self.k_HPWH[nx_new]*Q_dot_cd_i- m_dot/self.k_l*self.prop_dict['cp_sto']*T_w_supply
+                            self.C1[nx_new] = -h_amb*self.layer["A_wall_amb"][nx_new]*T_amb - self.switch1*self.k_EWH[nx_new]*Q_dot_E_layer_vect[nx_new] \
+                                - self.switch1*self.k_HPWH[nx_new]*Q_dot_cd_i- m_dot/self.k_l*self.prop_dict['cp_sto']*T_w_supply
                           ## case of the remaining cells with injection     
                         else:
                             
@@ -341,8 +353,8 @@ class WaterHeater():
                             
                             self.B1[i][i] = - self.layer["m"][i]*self.prop_dict['cp_sto']/dt
                             
-                            self.C1[i] = -h_amb*self.layer["A_wall_amb"][i]*T_amb - switch1*self.k_EWH[i]*Q_dot_E_layer_vect[i] \
-                                - switch1*self.k_HPWH[i]*Q_dot_cd_i - m_dot/self.k_l*self.prop_dict['cp_sto']*T_w_supply
+                            self.C1[i] = -h_amb*self.layer["A_wall_amb"][i]*T_amb - self.switch1*self.k_EWH[i]*Q_dot_E_layer_vect[i] \
+                                - self.switch1*self.k_HPWH[i]*Q_dot_cd_i - m_dot/self.k_l*self.prop_dict['cp_sto']*T_w_supply
                             
                             
                     else: 
@@ -356,8 +368,8 @@ class WaterHeater():
                         
                         self.B1[i][i] = - self.layer["m"][i]*self.prop_dict['cp_sto']/dt
                         
-                        self.C1[i] = -h_amb*self.layer["A_wall_amb"][i]*T_amb - switch1*self.k_EWH[i]*Q_dot_E_layer_vect[i] \
-                            - switch1*self.k_HPWH[i]*Q_dot_cd_i
+                        self.C1[i] = -h_amb*self.layer["A_wall_amb"][i]*T_amb - self.switch1*self.k_EWH[i]*Q_dot_E_layer_vect[i] \
+                            - self.switch1*self.k_HPWH[i]*Q_dot_cd_i
                         
                 toc_building_1 = counter.perf_counter()
                 self.perf_building.append(toc_building_1 - tic_building_1)
@@ -370,16 +382,16 @@ class WaterHeater():
             self.perf_solving.append(toc_solving_1 - tic_solving_1)
             
             # Vector of power exchanges
-            Q_dot_ref_vect = switch1*self.k_HPWH*Q_dot_cd_i
+            Q_dot_ref_vect = self.switch1*self.k_HPWH*Q_dot_cd_i
             Q_dot_amb_vect = -h_amb*self.layer["A_wall_amb"]*(T_1 - T_amb)
-            Q_dot_E_vect = switch1*Q_dot_E_layer_vect
+            Q_dot_E_vect = self.switch1*Q_dot_E_layer_vect
             self.W_dot_cons_1.append(sum(Q_dot_E_vect))
             E_temp = sum(self.layer["m"]*self.prop_dict['cp_sto']*T_1)
             
             if self.double == True:
                 
                 # Same conditions as in the first tank except for the mass flow rate that has an influence here
-                if is_increasing(T_2) or switch2 != switch2_pre or new_sim or switch2 == 1 or m_dot != 0:
+                if is_increasing(T_2) or self.switch2 != switch2_pre or self.new_sim or self.switch2 == 1 or m_dot != 0:
                     tic_building_2 = counter.perf_counter()
                     #not(hasattr(self, 'A')) condition for the creation of the matrix, not in use anymore
 
@@ -420,7 +432,7 @@ class WaterHeater():
                             
                             self.B2[0][0] = - self.layer["m"][0]*self.prop_dict['cp_sto']/dt
                             
-                            self.C2[0] = -h_amb*self.layer["A_wall_amb"][0]*T_amb - switch2*self.k_EWH[0]*Q_dot_E_layer_vect[0] \
+                            self.C2[0] = -h_amb*self.layer["A_wall_amb"][0]*T_amb - self.switch2*self.k_EWH[0]*Q_dot_E_layer_vect[0] \
                                
                         
                         elif i > self.layer['nx']-1 - self.k_l: 
@@ -436,7 +448,7 @@ class WaterHeater():
                                     
                                 self.B2[nx_new][nx_new] = - self.layer["m"][nx_new]*self.prop_dict['cp_sto']/dt
                                 
-                                self.C2[nx_new] = -h_amb*self.layer["A_wall_amb"][nx_new]*T_amb - switch2*self.k_EWH[nx_new]*Q_dot_E_layer_vect[nx_new] \
+                                self.C2[nx_new] = -h_amb*self.layer["A_wall_amb"][nx_new]*T_amb - self.switch2*self.k_EWH[nx_new]*Q_dot_E_layer_vect[nx_new] \
                                      - m_dot/self.k_l*self.prop_dict['cp_sto']*T_supply_tank2
                             
                     
@@ -457,7 +469,7 @@ class WaterHeater():
                                 
                                 self.B2[i][i] = - self.layer["m"][i]*self.prop_dict['cp_sto']/dt
                                 
-                                self.C2[i] = -h_amb*self.layer["A_wall_amb"][i]*T_amb - switch2*self.k_EWH[i]*Q_dot_E_layer_vect[i] \
+                                self.C2[i] = -h_amb*self.layer["A_wall_amb"][i]*T_amb - self.switch2*self.k_EWH[i]*Q_dot_E_layer_vect[i] \
                                      - m_dot/self.k_l*self.prop_dict['cp_sto']*T_supply_tank2
                                 
                   
@@ -472,7 +484,7 @@ class WaterHeater():
                             
                             self.B2[i][i] = - self.layer["m"][i]*self.prop_dict['cp_sto']/dt
                             
-                            self.C2[i] = -h_amb*self.layer["A_wall_amb"][i]*T_amb - switch2*self.k_EWH[i]*Q_dot_E_layer_vect[i] \
+                            self.C2[i] = -h_amb*self.layer["A_wall_amb"][i]*T_amb - self.switch2*self.k_EWH[i]*Q_dot_E_layer_vect[i] \
                 
                     toc_building_2 = counter.perf_counter() 
                     self.perf_building.append(toc_building_2 - tic_building_2)
@@ -489,8 +501,8 @@ class WaterHeater():
 
             if self.tank_number == 2:
                 Q_dot_amb_vect = Q_dot_amb_vect - h_amb*self.layer["A_wall_amb"]*(T_2 - T_amb)
-                Q_dot_E_vect = Q_dot_E_vect + switch2*Q_dot_E_layer_vect
-                self.W_dot_cons_2.append(sum(switch2*Q_dot_E_layer_vect))
+                Q_dot_E_vect = Q_dot_E_vect + self.switch2*Q_dot_E_layer_vect
+                self.W_dot_cons_2.append(sum(self.switch2*Q_dot_E_layer_vect))
                 T_out = T_2[0]
                 E_temp += sum(self.layer["m"]*self.prop_dict['cp_sto']*T_2)
             else:
@@ -522,9 +534,349 @@ class WaterHeater():
             ## New temperature vector recording
             self.T_record1.append(T_1)
             self.T_record2.append(T_2)
-            new_sim = False
+            self.new_sim = False
+            
+    def MN_model_nocontrol(self, dt, time, m_dot, T_w_supply, T_amb, switch1, switch2, T_ext = 273.15):
+        """
+        Function used to model the Waterheater using Modal nodes (division into nx zones)     
+        
+        Inputs:
+            
+            dt: time step - s
+            time: maximum time - s
+            T_vect_init: initial temperature vector - K
+            m_dot: mass flow rate flowing in and out of the storage tank - kg/s
+            T_w_supply: temperature of the supply water - K
+            T_amb: ambiant temperature - K
+            switch1: Activate the first part of the heating system or not (first tank or HP)
+            switch2: Activate the second part of the heating system or not (second tank or additional heating resistor HP)
+            T_ext: external temperature for the HP - K
+        """
+        # new sequence of sim launched
+        if not hasattr(self, 'new_sim'):
+            self.new_sim = True
+
+            # Matrices initialization
+
+            # Initiliaze the matrix size
+            self.A1 = np.zeros([self.layer['nx'],self.layer['nx']])
+            self.B1 = np.zeros([self.layer['nx'],self.layer['nx']])
+            self.C1 = np.zeros([self.layer['nx']])
+
+
+            if self.double == True:
+                # Initiliaze the matrix size
+                self.A2 = np.zeros([self.layer['nx'],self.layer['nx']])
+                self.B2 = np.zeros([self.layer['nx'],self.layer['nx']])
+                self.C2 = np.zeros([self.layer['nx']])
+                
+                
+        K = np.zeros([self.layer['nx']])
+        K2 = np.zeros([self.layer['nx']])  
+        
+        # Surface between two layers 
+        A_bound = self.Diameter**2*np.pi/4
+        
+
+            
+        # Case where an electrical resistor is used 
+        Q_dot_E_layer = 0
+        if self.EWH == True:
+            Q_dot_E_layer = self.param_heating['Q_dot_peak_E']/sum(self.k_EWH)
+            
+        Q_dot_E_layer_vect = self.k_EWH*Q_dot_E_layer
+
+        
+        # Ambiance heat transfer
+        h_amb = self.MParam['h_amb'] #W/(m^2 K)
+        
+        ## Resolution 
+        # Resolution of the equation of type AT + BT0 + C = 0
+        
+        # Initial temperature distribution
+        
+        T_1 = self.T_record1[-1]
+        T_2 = self.T_record2[-1]
+        
+        
+        # Function to check for the temperature inversion phenomenon (if T[i] > T[i-1] + tol, the inversion should happen)
+        T_diff_tol = 0 # K tolerance on the temperature difference
+        def is_increasing(vector):
+            for i in range(1, len(vector)):
+                if vector[i] > vector[i-1] + T_diff_tol:
+                    return True
+            return False
+        
+        
+
+
+        for t in range(int(round(time/dt,0))):
+            
+            
+            # Check if the system is heating or not (condition inside the function)
+            switch1_pre = self.switch1
+            switch2_pre = self.switch2
+            self.switch1 = switch1
+            self.switch2 = switch2
+            
+            
+            # increasing to check if a layer is not warmer below a hot layer --> K_i changing
+            # switch if a change is noticed the matrices need to be changed --> switch changing
+            # new_sim as calculation is needed for the first sim
+            # switch == 1 if heating K_i will automatically change
+            
+            # water temperature 
+            # Check if any values in self.k_HPWH are equal to 1
+            if self.HPWH == True:
+                W_dot_cons_HP, Q_dot_cd, COP = self.HP_cycle(T_1, self.switch2, T_ext)
+                self.COP.append(COP)
+                Q_dot_cd_i = Q_dot_cd/sum(self.k_HPWH)
+            else :
+                W_dot_cons_HP = 0
+                Q_dot_cd_i = 0
+                self.COP.append(None)  
+
+            if is_increasing(T_1) or self.switch1 != switch1_pre or self.switch2 != switch2_pre or self.new_sim or self.switch1 == 1 or self.switch2 == 1:
+                tic_building_1 = counter.perf_counter()
+                 
+                # Loop on the storage size to fill in the matrices
+                for i in range(0,self.layer['nx']):
+
+                    if i != self.layer['nx']-1:
+                        if T_1[i + 1] > T_1[i] + T_diff_tol:
+                            K[i] = self.prop_dict['k_sto']*self.MParam['delta']
+                        else:
+                            K[i] = self.prop_dict['k_sto']
+                        
+                    if i == 0: 
+                        self.A1[0][0] = self.layer["m"][0]*self.prop_dict['cp_sto']/dt + m_dot*self.prop_dict['cp_sto'] + K[0]*A_bound/self.dx[0] - self.prop_dict['alpha_sto']*self.layer["m"][0]*self.prop_dict['cp_sto']/self.dx[0]**2 \
+                            + h_amb*self.layer["A_wall_amb"][0] 
+                            
+                        self.A1[0][1] = -m_dot*self.prop_dict['cp_sto'] + self.prop_dict['alpha_sto']*self.layer["m"][0]*self.prop_dict['cp_sto']*(1/self.dx[0]**2 + 1/self.dx[1]**2) - K[0]*A_bound/self.dx[0]
+                        
+                        self.A1[0][2] = - self.prop_dict['alpha_sto']*self.layer["m"][0]*self.prop_dict['cp_sto']/self.dx[1]**2
+                        
+                        self.B1[0][0] = - self.layer["m"][0]*self.prop_dict['cp_sto']/dt
+                        
+                        self.C1[0] = -h_amb*self.layer["A_wall_amb"][0]*T_amb - self.switch1*self.k_EWH[0]*Q_dot_E_layer_vect[0] \
+                            - self.switch2*self.k_HPWH[0]*Q_dot_cd_i
+                            
+                    elif i > self.layer['nx']-1 - self.k_l: 
+                        
+                        nx_new = self.layer['nx']-1
+                        ## case of the last cell
+                        if i == self.layer['nx']-1:
+                            
+                            self.A1[nx_new][nx_new - 2] = - self.prop_dict['alpha_sto']*self.layer["m"][nx_new]*self.prop_dict['cp_sto']/self.dx[nx_new-2]**2 
+                                
+                            self.A1[nx_new][nx_new - 1] = self.prop_dict['alpha_sto']*self.layer["m"][nx_new]*self.prop_dict['cp_sto']*(1/self.dx[nx_new-1]**2 + 1/self.dx[nx_new-2]**2) - K[nx_new-1]*A_bound/self.dx[nx_new-1]
+                            
+                            self.A1[nx_new][nx_new] = self.layer["m"][nx_new]*self.prop_dict['cp_sto']/dt + m_dot/self.k_l*self.prop_dict['cp_sto'] - self.prop_dict['alpha_sto']*self.layer["m"][nx_new]*self.prop_dict['cp_sto']/self.dx[nx_new-1]**2 + h_amb*self.layer["A_wall_amb"][nx_new] \
+                               + K[nx_new-1]*A_bound/self.dx[nx_new-1]
+                                
+                            self.B1[nx_new][nx_new] = - self.layer["m"][nx_new]*self.prop_dict['cp_sto']/dt
+                            
+                            self.C1[nx_new] = -h_amb*self.layer["A_wall_amb"][nx_new]*T_amb - self.switch1*self.k_EWH[nx_new]*Q_dot_E_layer_vect[nx_new] \
+                                - self.switch2*self.k_HPWH[nx_new]*Q_dot_cd_i- m_dot/self.k_l*self.prop_dict['cp_sto']*T_w_supply
+                          ## case of the remaining cells with injection     
+                        else:
+                            
+                            frac_in = (nx_new - i)/self.k_l  # used for the fraction of mass flow rate going inside the cell from the previous cell 
+                            frac_out = (nx_new - i + 1)/self.k_l  # used for the fraction of mass flow rate going outside the cell in the next cell 
+                            
+                            
+                            self.A1[i][i - 1] = - self.prop_dict['alpha_sto']*self.layer["m"][i]*self.prop_dict['cp_sto']/self.dx[i-1]**2 - K[i-1]*A_bound/self.dx[i-1]
+                                
+                            self.A1[i][i + 1] = - self.prop_dict['alpha_sto']*self.layer["m"][i]*self.prop_dict['cp_sto']/self.dx[i]**2 - m_dot*frac_in*self.prop_dict['cp_sto'] - K[i]*A_bound/self.dx[i]
+                            
+                            self.A1[i][i] = self.prop_dict['alpha_sto']*self.layer["m"][i]*self.prop_dict['cp_sto']*(1/self.dx[i]**2 + 1/self.dx[i-1]**2) \
+                                + self.layer["m"][i]*self.prop_dict['cp_sto']/dt + m_dot*frac_out*self.prop_dict['cp_sto'] + h_amb*self.layer["A_wall_amb"][i] \
+                                 + K[i]*A_bound/self.dx[i] + K[i-1]*A_bound/self.dx[i-1]
+                            
+                            self.B1[i][i] = - self.layer["m"][i]*self.prop_dict['cp_sto']/dt
+                            
+                            self.C1[i] = -h_amb*self.layer["A_wall_amb"][i]*T_amb - self.switch1*self.k_EWH[i]*Q_dot_E_layer_vect[i] \
+                                - self.switch2*self.k_HPWH[i]*Q_dot_cd_i - m_dot/self.k_l*self.prop_dict['cp_sto']*T_w_supply
+                            
+                            
+                    else: 
+                        self.A1[i][i - 1] = - self.prop_dict['alpha_sto']*self.layer["m"][i]*self.prop_dict['cp_sto']/self.dx[i-1]**2 - K[i-1]*A_bound/self.dx[i-1]
+                            
+                        self.A1[i][i + 1] = - self.prop_dict['alpha_sto']*self.layer["m"][i]*self.prop_dict['cp_sto']/self.dx[i]**2 - m_dot*self.prop_dict['cp_sto'] - K[i]*A_bound/self.dx[i]
+                        
+                        self.A1[i][i] = self.prop_dict['alpha_sto']*self.layer["m"][i]*self.prop_dict['cp_sto']*(1/self.dx[i]**2 + 1/self.dx[i-1]**2) \
+                            + self.layer["m"][i]*self.prop_dict['cp_sto']/dt + m_dot*self.prop_dict['cp_sto'] + h_amb*self.layer["A_wall_amb"][i] \
+                             + K[i]*A_bound/self.dx[i] + K[i-1]*A_bound/self.dx[i-1]
+                        
+                        self.B1[i][i] = - self.layer["m"][i]*self.prop_dict['cp_sto']/dt
+                        
+                        self.C1[i] = -h_amb*self.layer["A_wall_amb"][i]*T_amb - self.switch1*self.k_EWH[i]*Q_dot_E_layer_vect[i] \
+                            - self.switch2*self.k_HPWH[i]*Q_dot_cd_i
+                        
+                toc_building_1 = counter.perf_counter()
+                self.perf_building.append(toc_building_1 - tic_building_1)
+            
+            # Resolution process   
+            tic_solving_1 = counter.perf_counter()
+            T0 = T_1
+            T_1 =  np.dot(np.linalg.inv(self.A1),  - np.transpose((np.dot(self.B1,T0) + self.C1)))
+            toc_solving_1 = counter.perf_counter()
+            self.perf_solving.append(toc_solving_1 - tic_solving_1)
+            
+            # Vector of power exchanges
+            Q_dot_ref_vect = self.switch2*self.k_HPWH*Q_dot_cd_i
+            Q_dot_amb_vect = -h_amb*self.layer["A_wall_amb"]*(T_1 - T_amb)
+            Q_dot_E_vect = self.switch1*Q_dot_E_layer_vect
+            self.W_dot_cons_1.append(sum(Q_dot_E_vect))
+            E_temp = sum(self.layer["m"]*self.prop_dict['cp_sto']*T_1)
+            
+            if self.double == True:
+                
+                # Same conditions as in the first tank except for the mass flow rate that has an influence here
+                if is_increasing(T_2) or self.switch2 != switch2_pre or self.new_sim or self.switch2 == 1 or m_dot != 0:
+                    tic_building_2 = counter.perf_counter()
+                    #not(hasattr(self, 'A')) condition for the creation of the matrix, not in use anymore
+
+                    # Commented as double tank storage does not apply with heat pump heating system
+                    # water temperature 
+                    # Check if any values in self.k_HPWH are equal to 1
+                    # if self.HPWH == True:
+                    #     # Get the first matching value from the T array
+                    #     # Highest temperature where the water is heated (pinch point at Q = 1)
+                    #     T_w_out_ev = max(T_2[self.k_HPWH == 1])
+                    #     pp_cd = 5 #K
+                    #     delta = T_amb - 273.15
+                    #     pp_cd = 5 + delta #K
+                    #     T_ref = T_w_out_ev + pp_cd
+                    #     # Chose the pressure reference with a pinch point of 5K at a quality Q = 1
+                    #     P_ref = PropsSI( 'P',  'T', T_ref, 'Q', 0.5, self.refrigerant)
+                    # else:
+                    #     T_ref = 273.15
+
+                    # Loop to create the matrices of the second tank 
+                    T_supply_tank2 = T_1[0]
+
+                    for i in range(0,self.layer['nx']):
+                        
+                        if i != self.layer['nx']-1:
+                            if T_2[i + 1] > T_2[i] + T_diff_tol:
+                                K2[i] = self.prop_dict['k_sto']*self.MParam['delta']#*abs(T[i + 1] - T[i])
+                            else:
+                                K2[i] = self.prop_dict['k_sto']
+                            
+                        if i == 0: 
+                            self.A2[0][0] = self.layer["m"][0]*self.prop_dict['cp_sto']/dt + m_dot*self.prop_dict['cp_sto'] + K2[0]*A_bound/self.dx[0] - self.prop_dict['alpha_sto']*self.layer["m"][0]*self.prop_dict['cp_sto']/self.dx[0]**2 \
+                                + h_amb*self.layer["A_wall_amb"][0] 
+                                
+                            self.A2[0][1] = -m_dot*self.prop_dict['cp_sto'] + self.prop_dict['alpha_sto']*self.layer["m"][0]*self.prop_dict['cp_sto']*(1/self.dx[0]**2 + 1/self.dx[1]**2) - K2[0]*A_bound/self.dx[0]
+                            
+                            self.A2[0][2] = - self.prop_dict['alpha_sto']*self.layer["m"][0]*self.prop_dict['cp_sto']/self.dx[1]**2
+                            
+                            self.B2[0][0] = - self.layer["m"][0]*self.prop_dict['cp_sto']/dt
+                            
+                            self.C2[0] = -h_amb*self.layer["A_wall_amb"][0]*T_amb - self.switch2*self.k_EWH[0]*Q_dot_E_layer_vect[0] \
+                               
+                        
+                        elif i > self.layer['nx']-1 - self.k_l: 
+                            nx_new = self.layer['nx']-1
+                            ## case of the last cell
+                            if i == self.layer['nx']-1:
+                                self.A2[nx_new][nx_new - 2] = - self.prop_dict['alpha_sto']*self.layer["m"][nx_new]*self.prop_dict['cp_sto']/self.dx[nx_new-2]**2 
+                                    
+                                self.A2[nx_new][nx_new - 1] = self.prop_dict['alpha_sto']*self.layer["m"][nx_new]*self.prop_dict['cp_sto']*(1/self.dx[nx_new-1]**2 + 1/self.dx[nx_new-2]**2) - K2[nx_new-1]*A_bound/self.dx[nx_new-1]
+                                
+                                self.A2[nx_new][nx_new] = self.layer["m"][nx_new]*self.prop_dict['cp_sto']/dt + m_dot/self.k_l*self.prop_dict['cp_sto'] - self.prop_dict['alpha_sto']*self.layer["m"][nx_new]*self.prop_dict['cp_sto']/self.dx[nx_new-1]**2 + h_amb*self.layer["A_wall_amb"][nx_new] \
+                                     + K2[nx_new-1]*A_bound/self.dx[nx_new-1]
+                                    
+                                self.B2[nx_new][nx_new] = - self.layer["m"][nx_new]*self.prop_dict['cp_sto']/dt
+                                
+                                self.C2[nx_new] = -h_amb*self.layer["A_wall_amb"][nx_new]*T_amb - self.switch2*self.k_EWH[nx_new]*Q_dot_E_layer_vect[nx_new] \
+                                     - m_dot/self.k_l*self.prop_dict['cp_sto']*T_supply_tank2
+                            
+                    
+                              ## case of the remaining cells with injection     
+                            else:
+                                
+                                frac_in = (nx_new - i)/self.k_l  # used for the fraction of mass flow rate going inside the cell from the previous cell 
+                                frac_out = (nx_new - i + 1)/self.k_l  # used for the fraction of mass flow rate going outside the cell in the next cell 
+                                
+                                
+                                self.A2[i][i - 1] = - self.prop_dict['alpha_sto']*self.layer["m"][i]*self.prop_dict['cp_sto']/self.dx[i-1]**2 - K2[i-1]*A_bound/self.dx[i-1]
+                                    
+                                self.A2[i][i + 1] = - self.prop_dict['alpha_sto']*self.layer["m"][i]*self.prop_dict['cp_sto']/self.dx[i]**2 - m_dot*frac_in*self.prop_dict['cp_sto'] - K2[i]*A_bound/self.dx[i]
+                                
+                                self.A2[i][i] = self.prop_dict['alpha_sto']*self.layer["m"][i]*self.prop_dict['cp_sto']*(1/self.dx[i]**2 + 1/self.dx[i-1]**2) \
+                                    + self.layer["m"][i]*self.prop_dict['cp_sto']/dt + m_dot*frac_out*self.prop_dict['cp_sto'] + h_amb*self.layer["A_wall_amb"][i] \
+                                   + K2[i]*A_bound/self.dx[i] + K2[i-1]*A_bound/self.dx[i-1]
+                                
+                                self.B2[i][i] = - self.layer["m"][i]*self.prop_dict['cp_sto']/dt
+                                
+                                self.C2[i] = -h_amb*self.layer["A_wall_amb"][i]*T_amb - self.switch2*self.k_EWH[i]*Q_dot_E_layer_vect[i] \
+                                     - m_dot/self.k_l*self.prop_dict['cp_sto']*T_supply_tank2
+                                
+                  
+                        else: 
+                            self.A2[i][i - 1] = - self.prop_dict['alpha_sto']*self.layer["m"][i]*self.prop_dict['cp_sto']/self.dx[i-1]**2 - K2[i-1]*A_bound/self.dx[i-1]
+                                
+                            self.A2[i][i + 1] = - self.prop_dict['alpha_sto']*self.layer["m"][i]*self.prop_dict['cp_sto']/self.dx[i]**2 - m_dot*self.prop_dict['cp_sto'] - K2[i]*A_bound/self.dx[i]
+                            
+                            self.A2[i][i] = self.prop_dict['alpha_sto']*self.layer["m"][i]*self.prop_dict['cp_sto']*(1/self.dx[i]**2 + 1/self.dx[i-1]**2) \
+                                + self.layer["m"][i]*self.prop_dict['cp_sto']/dt + m_dot*self.prop_dict['cp_sto'] + h_amb*self.layer["A_wall_amb"][i] \
+                              + K2[i]*A_bound/self.dx[i] + K2[i-1]*A_bound/self.dx[i-1]
+                            
+                            self.B2[i][i] = - self.layer["m"][i]*self.prop_dict['cp_sto']/dt
+                            
+                            self.C2[i] = -h_amb*self.layer["A_wall_amb"][i]*T_amb - self.switch2*self.k_EWH[i]*Q_dot_E_layer_vect[i] \
+                
+                    toc_building_2 = counter.perf_counter() 
+                    self.perf_building.append(toc_building_2 - tic_building_2)
+                
+                # Resolution process 
+                tic_solving_2 = counter.perf_counter()
+                T0 = T_2
+                T_2 =  np.dot(np.linalg.inv(self.A2),  - np.transpose((np.dot(self.B2,T0) + self.C2)))            
+                toc_solving_2 = counter.perf_counter()
+                self.perf_solving.append(toc_solving_2 - tic_solving_2)
+
+            # Vector of power exchanges
+            self.Q_dot_ref_vect.append(Q_dot_ref_vect)
+
+            if self.tank_number == 2:
+                Q_dot_amb_vect = Q_dot_amb_vect - h_amb*self.layer["A_wall_amb"]*(T_2 - T_amb)
+                Q_dot_E_vect = Q_dot_E_vect + self.switch2*Q_dot_E_layer_vect
+                self.W_dot_cons_2.append(sum(self.switch2*Q_dot_E_layer_vect))
+                T_out = T_2[0]
+                E_temp += sum(self.layer["m"]*self.prop_dict['cp_sto']*T_2)
+            else:
+                T_out = T_1[0]
+            self.time_vect.append(self.time_vect[-1] + dt)
+            self.Q_dot_amb.append(sum(Q_dot_amb_vect))
+            self.Q_dot_ref.append(sum(Q_dot_ref_vect))
+            self.Q_dot_E.append(sum(Q_dot_E_vect))
+            self.Q_dot_water_used.append(m_dot*self.prop_dict['cp_sto']*(T_out - T_w_supply))
+            self.m_dot_w.append(m_dot)
+            
+            # Temperature of the water flowing out
+            self.T_w_out.append(T_out)
+
             
 
+                    
+            self.W_dot_cons_HP.append(W_dot_cons_HP)
+            self.W_dot_cons_tot.append(self.HPWH*self.W_dot_cons_HP[-1] + self.EWH*self.Q_dot_E[-1])
+            
+            
+            ## Energy conservation
+            # From the storage point of view (temperature)
+            self.E_temp.append(E_temp)
+            # From the power gain and loss 
+            self.E_power.append(self.E_power[-1] + self.Q_dot_ref[-1]*dt + self.Q_dot_amb[-1]*dt + self.Q_dot_E[-1]*dt - self.Q_dot_water_used[-1]*dt)
+            # State of charge
+            self.SOC.append((self.E_temp[-1] - self.E_min)/(self.E_max - self.E_min))
+            ## New temperature vector recording
+            self.T_record1.append(T_1)
+            self.T_record2.append(T_2)
+            self.new_sim = False
             
     def control(self, nx, T, T_SP, switch_pre, switch2_pre = 0, T2 = 0):
         
@@ -540,7 +892,7 @@ class WaterHeater():
         # DT_high = -3
 
         ## Control probes
-        DT_low = 7
+        DT_low = 7+7
         # DT_low = 25
         hyst = DT_low + DT_high
         T_SP = T_SP + DT_high
@@ -557,6 +909,7 @@ class WaterHeater():
         
             switch2 = 0
         else: 
+            
             T_probe1 = T[int(np.round(nx*(self.control_ratio)))]
             T_probe2 = T2[int(np.round(nx*(self.control_ratio)))]
             if T_probe1 >= T_SP:
@@ -604,7 +957,7 @@ class WaterHeater():
         w_is = h_is_cp - h_su_cp
         
         f = 50*0.97 # Hz
-        V_s = 5/1e6 # cubic meter
+        V_s = self.MParam['V_s'] # cubic meter
         V_dot_cp = f*V_s # cm per second
         m_dot_cp_th = rho_su_cp*V_dot_cp # kg/second
         eps_v = 0.8
@@ -630,7 +983,7 @@ class WaterHeater():
         
     def plotTPoints(self):
         """
-        Plot a diagram of the vertical temperature profiles of the Velis 65L
+        Plot a diagram of the vertical temperature profiles 
         
         """
         
@@ -1151,4 +1504,17 @@ def file_name(filename):
         list_path = ['..\\data\\simulations\\' , filename_new ,'.pkl']
         path = "".join(list_path) 
         i += 1
-    return filename_new         
+    return filename_new        
+
+def file_name_csv(filename):
+    list_path = ['..\\data\\Simulations\\' , filename ,'.csv']
+    filename_new = filename
+    path = "".join(list_path) 
+    i = 2
+    while os.path.isfile(path):
+        filename_list = [ filename , '_' ,str(i)]
+        filename_new = "".join(filename_list) 
+        list_path = ['..\\data\\simulations\\' , filename_new ,'.csv']
+        path = "".join(list_path) 
+        i += 1
+    return filename_new  

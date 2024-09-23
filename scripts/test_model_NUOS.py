@@ -93,7 +93,7 @@ double = False # Velis has two storage tank
 NUOS = wh.procF.WaterHeater(Height = Height, Diameter = Diameter, EWH = False, HPWH = True, double = double)
 
 # Definition of the heating system geometry
-NUOS.Heating_system(z_control = 0.29, z_init_E = 0.0, z_init_HP = 0.05, height_E = 0.16, height_HP = 0.25, Q_dot_peak_E = 0) # !! For one single tank
+NUOS.Heating_system(z_control = 0.29, z_init_E = 0.0, z_init_HP = 0.05, height_E = 0.16, height_HP = 0.25, Q_dot_peak_E = 1200) # !! For one single tank
 
 # Tank model empirical parameters 
 NUOS.Model_parameters(h_amb = 0.7, delta = 10000, H_mix = 0.2, V_s = 5/1e6, W_dot_el_basis = 100)
@@ -124,7 +124,7 @@ NUOS.MN_model_init(nx, T_vect_init)
 
 # Simulation constant variables
 T_w_supply = 15.39 + 273.15 # degC
-T_amb = 0+ 273.15
+T_amb = 0 + 273.15
 
 ### Input variable
 T_SP = 53 + 273.15
