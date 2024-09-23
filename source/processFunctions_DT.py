@@ -1130,7 +1130,19 @@ class WaterHeaterPool():
             'power_available_kW': np.array(self.P_sto_list) - np.array(self.P_vect_cum)/1000
         }
         
-        df = pd.DataFrame(data)
+        i = 0
+        for WH in self.pool_WH:
+            data[f'vdot_{i}_lps'] = WH.flow_rate_lps
+            i +=1
+            
+        i = 0
+        for WH in self.pool_WH:
+            data[f'W_dot_el_{i}_W'] = self.P_vect_com_list[i]
+            i +=1            
+            
+            
+        df = pd.DataFrame(data)    
+        
         
         list_file = ['..\\data\\Simulations\\' , name ,'.csv']
         

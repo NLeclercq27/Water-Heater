@@ -14,10 +14,10 @@ import source as procF
 tic = time.perf_counter()
 
 # Number of water heater and types
-N_random_HP = 1
-N_random_E = 1
-N_VELIS = 1
-N_NUOS = 1
+N_random_HP = 0
+N_random_E = 10
+N_VELIS = 0
+N_NUOS = 0
 
 # Number of day simulated  
 NDay = 1
@@ -26,6 +26,7 @@ NDay = 1
 pool = procF.dlt.WaterHeaterPool(N_random_HP = N_random_HP, N_random_E = N_random_E, N_VELIS = N_VELIS, N_NUOS = N_NUOS) 
 pool.generate_WH() 
 pool.simulate_pool_parallel(NDay)
+
 pool.plot_consumption()
 pool.plot_available_storage()
 pool.save_results_csv('TEST_digital_twin')
