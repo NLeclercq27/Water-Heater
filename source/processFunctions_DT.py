@@ -37,7 +37,7 @@ class WaterHeaterPool():
         
         # discretization of the pool
         self.nx = 40 # 40 usually
-        self.T_SP_normal = 55 + 273.15  
+        self.T_SP_normal = 55 + 273.15 
         self.T_SP_velis = 70 + 273.15  
         self.T_init = self.T_SP_normal 
         self.T_init_Velis = self.T_SP_velis 
@@ -635,6 +635,7 @@ class WaterHeaterPool():
         for i in range(self.N_random_E):
             # generate random dimensions/characteristics
             volume = random.choice(V_range)
+            # volume = 210/1e3
             height = np.random.normal(height_mean, height_std)
             # power = random.choice(Power_range)
             power = Power_range[np.where(np.array(V_range) == volume)[0][0]]
@@ -735,9 +736,10 @@ class WaterHeaterPool():
         self.attach_WaterConsumptionProfile(nday, day_init)
         self.E_sto_list = []
         self.P_sto_list = []
-        self.E_tot_used = 0
-        self.Q_dot_amb_tot = 0
+        self.E_cons_tot_kwh = 0
+        self.Q_amb_tot_kwh = 0
         print(f"Simulation of {self.N_VELIS} VELIS, {self.N_NUOS} NUOS, {self.N_random_E} random EWH and {self.N_random_HP} random HPWH...")       
+        # print(self.pool_WH[0].usage_profiles)
         for t in range(len(self.time_vect_com)):
             cnt = 0
             P_vect_cum = 0
@@ -780,8 +782,8 @@ class WaterHeaterPool():
                 P_vect_cum += WH.W_dot_cons_tot[-1]
                 self.T_out_vect_list[cnt][t] = WH.T_w_out[-1]
                 self.P_vect_com_list[cnt][t] = WH.W_dot_cons_tot[-1]
-                self.E_tot_used += WH.W_dot_cons_tot[-1]
-                self.Q_dot_amb_tot += WH.Q_dot_amb[-1]
+                self.E_cons_tot_kwh += WH.W_dot_cons_tot[-1]/3.6/1e6*60 # kWh
+                self.Q_amb_tot_kwh += -WH.Q_dot_amb[-1]/3.6/1e6*60
                 if WH.T_w_out[-1] < self.T_constraint:
 
                     self.T_constraint_bool[cnt] = 0
@@ -1139,6 +1141,15 @@ class WaterHeaterPool():
         }
         
         i = 0
+        
+        
+        for WH in self.pool_WH:
+            data[f'Charact_WH_{i} Vol(l) Power res (W) height (cm)'] = [WH.Volume*1000, WH.param_heating['Q_dot_peak_E'], WH.Height]
+            for t in range(len(self.time_vect_com)-3):
+                data[f'Charact_WH_{i} Vol(l) Power res (W) height (cm)'].append(None)
+            i +=1 
+        
+        i = 0
         for WH in self.pool_WH:
             data[f'vdot_{i}_lps'] = WH.flow_rate_lps
             i +=1
@@ -1151,7 +1162,7 @@ class WaterHeaterPool():
         for WH in self.pool_WH:
             data[f'T_mean_{i}_W'] = self.T_mean[i]
             i +=1   
-            
+        
             
         df = pd.DataFrame(data)    
         
