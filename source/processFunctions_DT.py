@@ -41,8 +41,8 @@ class WaterHeaterPool():
         self.T_SP_velis = 70 + 273.15  
         self.T_init = self.T_SP_normal 
         self.T_init_Velis = self.T_SP_velis 
-        self.tau_charge = 60 # seconds # time step for a charge
-        self.tau_discharge = 2 # seconds # time step for a discharge (must be a divider of 60 !!)
+        self.tau_charge = 60 # seconds # time step for a charge -- 60 seconds is recommended 
+        self.tau_discharge = 2 # seconds # time step for a discharge (must be a divider of 60 and maximum 60 !!)
         self.T_constraint = 38 + 273.15 # K
         self.T_max = 90 + 273.15
         self.T_max_HP = 55 + 273.15 # maximum temperature until which the heat pump is working
@@ -727,6 +727,7 @@ class WaterHeaterPool():
         self.P_vect_list = []
         self.P_vect_com_list = [[0.0] * len(self.time_vect_com) for _ in range(len(self.pool_WH))]
         self.T_out_vect_list = [[0.0] * len(self.time_vect_com) for _ in range(len(self.pool_WH))]
+        self.T_mean = [[0.0] * len(self.time_vect_com) for _ in range(len(self.pool_WH))]
         self.T_probe_vect_list = [[(0.0 , 0.0)] * len(self.time_vect_com) for _ in range(len(self.pool_WH))]
         self.P_vect_cum = []
         self.V_dot_vect_cum = 0
@@ -734,6 +735,8 @@ class WaterHeaterPool():
         self.attach_WaterConsumptionProfile(nday, day_init)
         self.E_sto_list = []
         self.P_sto_list = []
+        self.E_tot_used = 0
+        self.Q_dot_amb_tot = 0
         print(f"Simulation of {self.N_VELIS} VELIS, {self.N_NUOS} NUOS, {self.N_random_E} random EWH and {self.N_random_HP} random HPWH...")       
         for t in range(len(self.time_vect_com)):
             cnt = 0
@@ -744,9 +747,12 @@ class WaterHeaterPool():
                 if WH.Model == 'VELIS':
                     self.T_probe_vect_list[cnt][t] = (WH.T_record1[-1][index_pos], WH.T_record2[-1][index_pos])
                     T_SP = self.T_SP_velis
+                    self.T_mean[cnt][t] = np.mean([WH.T_record1[-1] , WH.T_record2[-1]])
+
                 else: 
                     self.T_probe_vect_list[cnt][t] = (WH.T_record1[-1][index_pos], None)
                     T_SP = self.T_SP_normal
+                    self.T_mean[cnt][t] = np.mean(WH.T_record1[-1])
                     
                     
 
@@ -774,6 +780,8 @@ class WaterHeaterPool():
                 P_vect_cum += WH.W_dot_cons_tot[-1]
                 self.T_out_vect_list[cnt][t] = WH.T_w_out[-1]
                 self.P_vect_com_list[cnt][t] = WH.W_dot_cons_tot[-1]
+                self.E_tot_used += WH.W_dot_cons_tot[-1]
+                self.Q_dot_amb_tot += WH.Q_dot_amb[-1]
                 if WH.T_w_out[-1] < self.T_constraint:
 
                     self.T_constraint_bool[cnt] = 0
@@ -788,7 +796,7 @@ class WaterHeaterPool():
             if t/60 % 4 == 0:
                 print(f'{int(t/60 + 4)} hours simulated') 
         print(f'Ratio of temperature constraints ({self.T_constraint -273.15:.2f}°C) respected: {sum(self.T_constraint_bool)}/{len(self.pool_WH)}')        
-   
+
     def control_functions(self, WH, time, T_probe, T_SP, strategy = 'tracking_SP') :    
         
         """
@@ -1138,7 +1146,11 @@ class WaterHeaterPool():
         i = 0
         for WH in self.pool_WH:
             data[f'W_dot_el_{i}_W'] = self.P_vect_com_list[i]
-            i +=1            
+            i +=1     
+        i = 0
+        for WH in self.pool_WH:
+            data[f'T_mean_{i}_W'] = self.T_mean[i]
+            i +=1   
             
             
         df = pd.DataFrame(data)    
