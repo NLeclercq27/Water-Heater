@@ -1144,7 +1144,7 @@ class WaterHeaterPool():
         
         
         for WH in self.pool_WH:
-            data[f'Charact_WH_{i} Vol(l) Power res (W) height (cm)'] = [WH.Volume*1000, WH.param_heating['Q_dot_peak_E'], WH.Height]
+            data[f'Charact_WH_{i} Vol(l) Power res (W) height (m)'] = [WH.Volume*1000, WH.param_heating['Q_dot_peak_E'], WH.Height]
             for t in range(len(self.time_vect_com)-3):
                 data[f'Charact_WH_{i} Vol(l) Power res (W) height (cm)'].append(None)
             i +=1 
