@@ -1130,51 +1130,62 @@ class WaterHeaterPool():
         return  P_sto, E_sto 
 
     def save_results_csv(self, name):
-        name = procF.wh.file_name_csv(name)
-        # create dataframe         
-        data = {
-            'time_seconds': self.time_vect_com,
-            'cumulated_power_kW': np.array(self.P_vect_cum)/1000,
-            'cumulated_flow_lps': self.V_dot_vect_cum,
-            'storage_available_kWh': self.E_sto_list,
-            'power_available_kW': np.array(self.P_sto_list) - np.array(self.P_vect_cum)/1000
-        }
-        
-        i = 0
-        
-        
-        for WH in self.pool_WH:
-            data[f'Charact_WH_{i} Vol(l) Power res (W) height (m)'] = [WH.Volume*1000, WH.param_heating['Q_dot_peak_E'], WH.Height]
-            for t in range(len(self.time_vect_com)-3):
-                data[f'Charact_WH_{i} Vol(l) Power res (W) height (cm)'].append(None)
-            i +=1 
-        
-        i = 0
-        for WH in self.pool_WH:
-            data[f'vdot_{i}_lps'] = WH.flow_rate_lps
-            i +=1
+            # Get the unique filename from the file_name_csv function
+            filename_charact, filename_timeseries = procF.wh.file_name_csv(name)
+     
+            # Construct the full path to save the CSV
+            full_path_charact = os.path.join('..', 'data', 'Simulations', filename_charact)
+            full_path_timeseries = os.path.join('..', 'data', 'Simulations', filename_timeseries)
+     
+            # Create the data dictionary
+            data = {
+                'time_seconds': self.time_vect_com,
+                'cumulated_power_kW': np.array(self.P_vect_cum) / 1000,
+                'cumulated_flow_lps': self.V_dot_vect_cum,
+                'storage_available_kWh': self.E_sto_list,
+                'power_available_kW': np.array(self.P_sto_list) - np.array(self.P_vect_cum) / 1000
+            }
             
-        i = 0
-        for WH in self.pool_WH:
-            data[f'W_dot_el_{i}_W'] = self.P_vect_com_list[i]
-            i +=1     
-        i = 0
-        for WH in self.pool_WH:
-            data[f'T_mean_{i}_W'] = self.T_mean[i]
-            i +=1   
-        
-            
-        df = pd.DataFrame(data)    
-        
-        
-        list_file = ['..\\data\\Simulations\\' , name ,'.csv']
-        
-        # The complete file name is built up
-        filename = "".join(list_file)       
-        
-        df.to_csv(filename, index = False, sep=';')
-         
-        
+     
+            # Reset index for the next loop
+            i = 0
+            for WH in self.pool_WH:
+                data[f'vdot_{i}_lps'] = WH.flow_rate_lps
+                i += 1
+     
+            # Reset index for the next loop
+            i = 0
+            for WH in self.pool_WH:
+                data[f'W_dot_el_{i}_W'] = self.P_vect_com_list[i]
+                i += 1
+     
+            # Reset index for the next loop
+            i = 0
+            for WH in self.pool_WH:
+                data[f'T_mean_{i}_W'] = self.T_mean[i]
+                i += 1
+
+            # Create a new disctionnary for the characteristics of each water heater 
+            data_charact = {'Water Heater': [], 'Type': [], 'Volume (L)' : [], 'Electric Power (W)' : [], 'Height (m)' : [], 'Diameter (m)' : [] }
+            # Initialize the index for water heaters
+            i = 0
+            for WH in self.pool_WH:
+                data_charact['Water Heater'].append(f'Water_heater_{i}')
+                data_charact['Type'].append(WH.Model)
+                data_charact['Volume (L)'].append(WH.Volume * 1000)
+                data_charact['Electric Power (W)'].append(WH.param_heating['Q_dot_peak_E'])
+                data_charact['Height (m)'].append(WH.Height)
+                data_charact['Diameter (m)'].append(WH.Diameter)
+                i += 1
+
+            # Create a DataFrames from the dictionaries
+            df_charact = pd.DataFrame(data_charact)
+            df_timeseries = pd.DataFrame(data)
+     
+            # Save the DataFrame to the specified path
+            df_charact .to_csv(full_path_charact, index=False, sep=';')
+            df_timeseries.to_csv(full_path_timeseries, index=False, sep=';')
+            print(f"Results saved to {full_path_charact} and {full_path_timeseries}")        
         
         
         

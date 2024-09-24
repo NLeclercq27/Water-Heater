@@ -1506,15 +1506,35 @@ def file_name(filename):
         i += 1
     return filename_new        
 
+
 def file_name_csv(filename):
-    list_path = ['..\\data\\Simulations\\' , filename ,'.csv']
-    filename_new = filename
-    path = "".join(list_path) 
-    i = 2
-    while os.path.isfile(path):
-        filename_list = [ filename , '_' ,str(i)]
-        filename_new = "".join(filename_list) 
-        list_path = ['..\\data\\simulations\\' , filename_new ,'.csv']
-        path = "".join(list_path) 
+    # Define the names of the two files (one for the characteristics and the other for the time series)
+    filename_charact = "".join([filename, '_WH_charact']) 
+    filename_timeseries = "".join([filename, '_WH_timeseries']) 
+    # Define the base path for storing the CSV files
+    base_path = os.path.join('..', 'data', 'Simulations')
+    
+    # Create the directory if it doesn't exist
+    if not os.path.exists(base_path):
+        os.makedirs(base_path)
+ 
+    # Initialize the full path with the provided filename
+    filename_charact_new = f"{filename_charact}.csv"  # Initial filename with .csv
+    filename_timeseries_new = f"{filename_timeseries}.csv"
+    path_charact = os.path.join(base_path, filename_charact_new)
+    
+    # Initialize the index for duplicate filenames
+    i = 1  # Start with 1 for appending suffix
+ 
+    # Loop to find a unique filename
+    while os.path.isfile(path_charact):
+        # Create a new filename with an incrementing suffix
+        filename_charact_new = f"{filename_charact}_{i}.csv"
+        filename_timeseries_new = f"{filename_timeseries}_{i}.csv"
+        path_charact = os.path.join(base_path, filename_charact_new)  # Update path with the new filename
         i += 1
-    return filename_new  
+ 
+    return filename_charact_new, filename_timeseries_new
+
+
+
