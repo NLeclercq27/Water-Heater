@@ -88,6 +88,7 @@ Several control strategies are pre-defined:
 - "full_heat": - heat the system until the maximum water temperature is reached (80°C in every water heater)
                   strategy for electricity storage (gives the maximum power and energy that can be stored over time)
                - heat the HPWH storage using the electrical resistor as well . The default is 'tracking_SP'.
+  
 The results are saved in two csv files:
 - The file with the extension "charact" gives the parameters of each water heater of the pool.
 - The file with the extension "time_series" gives the variables (electrical consumption, water consumption,...)
