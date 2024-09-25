@@ -37,7 +37,7 @@ pool.generate_pool()
 # Simulate the pool
 switch1 = False
 switch2 = False
-T_probe = [(0.0 , 0.0)] * len(pool.pool_WH)
+T_probe = [(55+273.15 , 55+273.15)] * len(pool.pool_WH)
 pool.initialize_sim(NDay)
 # Loop over the time 
 for t in range(len(pool.time_vect_com)):
