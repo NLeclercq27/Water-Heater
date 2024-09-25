@@ -69,7 +69,7 @@ To check that everything runs fine, you can run the example python files provide
 ### Digital Twin use (pool of water heaters)
 
 A new script called digital_twin (in the script folder) allows the simulation of different water heaters in parallel. 
-This aggragation of water heaters (also called pool of water heaterd) constitutes a digital twin allowing to asseds the electriciy consumption of the pool under stochastic water consumption profiles. 
+This aggragation of water heaters (also called pool of water heaterd) constitutes a digital twin allowing to assess the electriciy consumption of the pool under stochastic water consumption profiles. 
 
 Four kinds of water heater can be used: 
 - Random heat pump water heater (number defined with the variable N_random_HP): heat pump water heater of variable dimensions
