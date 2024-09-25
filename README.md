@@ -66,4 +66,31 @@ The above commands create a dedicated environment so that your conda configurati
 
 To check that everything runs fine, you can run the example python files provided in the scripts folder.
 
+### Digital Twin use (pool of water heaters)
+
+A new script called digital_twin (in the script folder) allows the simulation of different water heaters in parallel. 
+This aggragation of water heaters (also called pool of water heaterd) constitutes a digital twin allowing to asseds the electriciy consumption of the pool under stochastic water consumption profiles. 
+
+Four kinds of water heater can be used: 
+- Random heat pump water heater (number defined with the variable N_random_HP): heat pump water heater of variable dimensions
+- Random electrical water heater (number defined with the variable N_random_E): electrical water heater of variable dimensions
+- VELIS water heater (number defined with the variable N_VELIS): VELIS water heater (model from Ariston)
+- NUOS water heater (number defined with the variable N_NUOS): NUOS water heater (model from Ariston)
+
+The  control of the pool over time can be done directly in the digital_twin script using the probe temperatures
+Several control strategies are pre-defined:
+- "tracking_SP": - The system stops heating when the set point is exceeded by a temperature difference DT_high
+                 - The system starts heating when the control temperatrure is DT_low below the set point
+                 - switch2 always has the priority on switch 1 for the velis
+                 - The additional heating resistor is not used for the HPWH
+- "mid_day_night": - The system starts heating at midday or midnight and stops when the temperature 
+                  setpoint + DThigh is reached
+- "full_heat": - heat the system until the maximum water temperature is reached (80°C in every water heater)
+                  strategy for electricity storage (gives the maximum power and energy that can be stored over time)
+               - heat the HPWH storage using the electrical resistor as well . The default is 'tracking_SP'.
+The results are saved in two csv files:
+- The file with the extension "charact" gives the parameters of each water heater of the pool.
+- The file with the extension "time_series" gives the variables (electrical consumption, water consumption,...)
+        of each water heater varying with time.
+  
 Please contact Nicolas Leclercq (N.Leclercq@uliege.be) for more information.
