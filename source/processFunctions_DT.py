@@ -3,6 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import make_interp_spline
 from scipy.stats import norm
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import math
 import random
 # include the main library path (the parent folder) in the path environment variable
@@ -1033,6 +1035,11 @@ class WaterHeaterPool():
         DT_low = 3 # Value subtracted to the setpoint where the system restart heating
         hyst = DT_low + DT_high # Total hysteresis range
         T_SP = T_SP + DT_high
+        
+        
+        
+        
+        
         if strategy == 'tracking_SP':
             if WH.Model == 'VELIS': # If the Velis is used the strategy never heats both tank at the same time              
                 T_probe1 = T_probe[0]
@@ -1163,52 +1170,182 @@ class WaterHeaterPool():
                     switch2 = False
         return switch1, switch2
         
-    def plot_available_storage(self): 
-        """
-        Plot the power that could be used instantly and the reserve of elecricity that can be stored.
+    # def plot_available_storage(self): 
+    #     """
+    #     Plot the power that could be used instantly and the reserve of elecricity that can be stored.
 
-        Returns
-        -------
-        None.
+    #     Returns
+    #     -------
+    #     None.
         
-        """
+    #     """
 
-        xdim = 5.5+1
-        ydim = 4.3
-        labelsize = 18
-        N_max = np.round(self.time_vect_com[-1]/3600)
+    #     xdim = 5.5+1
+    #     ydim = 4.3
+    #     labelsize = 18
+    #     N_max = np.round(self.time_vect_com[-1]/3600)
         
-        ## plot
-        plt.figure(figsize=(xdim,ydim),constrained_layout=True)
-        plt.rcParams.update({'font.size':16})
-        params = {
-                  "text.usetex" : True,
-                  "font.family" : "cm"}
-        plt.rcParams.update(params)
+    #     ## plot
+    #     plt.figure(figsize=(xdim,ydim),constrained_layout=True)
+    #     plt.rcParams.update({'font.size':16})
+    #     params = {
+    #               "text.usetex" : True,
+    #               "font.family" : "cm"}
+    #     plt.rcParams.update(params)
     
-        ax1 = plt.subplot(2,1,1)
-        plt.grid()
+    #     ax1 = plt.subplot(2,1,1)
+    #     plt.grid()
 
-        plt.plot(self.time_vect_com/3600, self.P_sto_vect - self.P_vect_cum/1000, 'k', linewidth = 1.5)
+    #     plt.plot(self.time_vect_com/3600, self.P_sto_vect - self.P_vect_cum/1000, 'k', linewidth = 1.5)
 
 
      
-        plt.xlabel('Time [h]',fontsize=18,  fontname="Times New Roman")
-        plt.ylabel('$\dot{W}_{el,sto}$ [kW]',fontsize=labelsize, fontname="Times New Roman" )            
-        plt.xlim(0, N_max)
-        plt.xticks(np.arange(0,N_max+1,4*N_max//24))
+    #     plt.xlabel('Time [h]',fontsize=18,  fontname="Times New Roman")
+    #     plt.ylabel('$\dot{W}_{el,sto}$ [kW]',fontsize=labelsize, fontname="Times New Roman" )            
+    #     plt.xlim(0, N_max)
+    #     plt.xticks(np.arange(0,N_max+1,4*N_max//24))
         
-        ax2 = plt.subplot(2,1,2)
-        plt.grid() 
-        plt.plot(self.time_vect_com/3600, self.E_sto_vect , 'k',  linewidth = 1.5)
+    #     ax2 = plt.subplot(2,1,2)
+    #     plt.grid() 
+    #     plt.plot(self.time_vect_com/3600, self.E_sto_vect , 'k',  linewidth = 1.5)
         
-        plt.xlabel('Time [h]',fontsize=18,  fontname="Times New Roman")
-        plt.ylabel('$E_{el,sto}$ [kWh]',fontsize=labelsize, fontname="Times New Roman" )   
-        plt.xlim(0, N_max)
-        plt.xticks(np.arange(0,N_max+1,4*N_max//24))
+    #     plt.xlabel('Time [h]',fontsize=18,  fontname="Times New Roman")
+    #     plt.ylabel('$E_{el,sto}$ [kWh]',fontsize=labelsize, fontname="Times New Roman" )   
+    #     plt.xlim(0, N_max)
+    #     plt.xticks(np.arange(0,N_max+1,4*N_max//24))
+    def plot_available_storage(self):
+        """
+        Plot the power that could be used instantly and the reserve of electricity that can be stored.
         
+        Returns
+        -------
+        None.
+    
+        """
+
+        labelsize = 18
+        N_max = np.round(self.time_vect_com[-1] / 3600)
+    
+        # Crear subplots (dos filas, una columna)
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1)
+    
+        # Primer gráfico - Power (dot{W}_{el,sto})
+        fig.add_trace(
+            go.Scatter(
+                x=self.time_vect_com / 3600,
+                y=self.P_sto_vect - self.P_vect_cum / 1000,
+                mode='lines',
+                line=dict(color='black', width=1.5),
+                name=r'$\dot{W}_{el,sto}$'
+            ),
+            row=1, col=1
+        )
+    
+        # Segundo gráfico - Energy (E_{el,sto})
+        fig.add_trace(
+            go.Scatter(
+                x=self.time_vect_com / 3600,
+                y=self.E_sto_vect,
+                mode='lines',
+                line=dict(color='black', width=1.5),
+                name=r'$E_{el,sto}$'
+            ),
+            row=2, col=1
+        )
+    
+        # Configuraciones de layout
+        fig.update_layout(
+            height=600, width=700,  # Tamaño de la figura
+            showlegend=False,  # Quitar leyenda si no es necesaria
+            font=dict(family="Times New Roman", size=16),
+            template='simple_white',  # Estilo blanco con cuadrículas
+        )
+    
+        # Etiquetas de ejes y límites para el primer gráfico
+        fig.update_xaxes(title_text="Time [h]", row=2, col=1)
+        fig.update_yaxes(title_text=r'$\dot{W}_{el,sto}$ [kW]', row=1, col=1)
+        fig.update_yaxes(title_text=r'$E_{el,sto}$ [kWh]', row=2, col=1)
         
-    def plot_consumption(self): 
+        # Limitar el rango de los ejes x
+        fig.update_xaxes(range=[0, N_max], tickvals=np.arange(0, N_max+1, 4 * N_max // 24))
+    
+        # Mostrar la figura
+        fig.show('browser')        
+        
+    # def plot_consumption(self): 
+    #     """
+    #     Create two plots.
+    #     Plot the electricity consumption profile of all water heaters AND the cumulated electricity consumption as a function of time.
+    #     Plot the cumulated water use AND the cumulated electricity consumption as a function of time.
+    #     Returns
+    #     -------
+    #     None.
+
+    #     """
+
+    #     xdim = 5.5+1
+    #     ydim = 4.3
+    #     labelsize = 18
+    #     N_max = np.round(self.time_vect_com[-1]/3600)
+        
+    #     ## plot -- all profiles + total consumption 
+    #     plt.figure(figsize=(xdim,ydim),constrained_layout=True)
+    #     plt.rcParams.update({'font.size':16})
+    #     params = {
+    #               "text.usetex" : True,
+    #               "font.family" : "cm"}
+    #     plt.rcParams.update(params)
+    
+    #     ax1 = plt.subplot(2,1,1)
+    #     plt.grid()
+    #     for i in range(len(self.P_el_mat[0])): 
+    #         plt.plot(self.time_vect_com/3600, self.P_el_mat[:,i] , 'k', linewidth = 0.5)
+
+
+     
+    #     plt.xlabel('Time [h]',fontsize=18,  fontname="Times New Roman")
+    #     plt.ylabel('$\dot{W}_{el,i}$ [W]',fontsize=labelsize, fontname="Times New Roman" )            
+    #     plt.xlim(0, N_max)
+    #     plt.xticks(np.arange(0,N_max+1,4*N_max//24))
+        
+    #     ax2 = plt.subplot(2,1,2)
+    #     plt.grid() 
+    #     plt.plot(self.time_vect_com/3600, np.array(self.P_vect_cum)/1000 , 'k',  linewidth = 2)
+        
+    #     plt.xlabel('Time [h]',fontsize=18,  fontname="Times New Roman")
+    #     plt.ylabel('$\sum \dot{W}_{el,i}$ [kW]',fontsize=labelsize, fontname="Times New Roman" )   
+    #     plt.xlim(0, N_max)
+    #     plt.xticks(np.arange(0,N_max+1,4*N_max//24))
+
+    #     ## plot -- water consumption over time + total electricity consumption 
+    #     plt.figure(figsize=(xdim,ydim),constrained_layout=True)
+    #     plt.rcParams.update({'font.size':16})
+    #     params = {
+    #               "text.usetex" : True,
+    #               "font.family" : "cm"}
+    #     plt.rcParams.update(params)
+    
+    #     ax1 = plt.subplot(2,1,1)
+    #     plt.grid()
+
+    #     plt.plot(self.time_vect_com/3600, np.array(self.V_dot_vect_cum )*60, 'k', linewidth = 1.5)
+
+
+     
+    #     plt.xlabel('Time [h]',fontsize=18,  fontname="Times New Roman")
+    #     plt.ylabel('$\sum \dot{V}_{w,i}$ [l/min]',fontsize=labelsize, fontname="Times New Roman" )           
+    #     plt.xlim(0, N_max )
+    #     plt.xticks(np.arange(0,N_max+1,4*N_max//24))
+        
+    #     ax2 = plt.subplot(2,1,2)
+    #     plt.grid() 
+    #     plt.plot(self.time_vect_com/3600, np.array(self.P_vect_cum)/1000 , 'k',  linewidth = 1.5)
+        
+    #     plt.xlabel('Time [h]',fontsize=18,  fontname="Times New Roman")
+    #     plt.ylabel('$\sum \dot{W}_{el,i}$ [kW]',fontsize=labelsize, fontname="Times New Roman" )   
+    #     plt.xlim(0, N_max)
+    #     plt.xticks(np.arange(0,N_max+1,4*N_max//24))
+    def plot_consumption(self):
         """
         Create two plots.
         Plot the electricity consumption profile of all water heaters AND the cumulated electricity consumption as a function of time.
@@ -1216,71 +1353,97 @@ class WaterHeaterPool():
         Returns
         -------
         None.
-
         """
-
-        xdim = 5.5+1
-        ydim = 4.3
+    
         labelsize = 18
-        N_max = np.round(self.time_vect_com[-1]/3600)
-        
-        ## plot -- all profiles + total consumption 
-        plt.figure(figsize=(xdim,ydim),constrained_layout=True)
-        plt.rcParams.update({'font.size':16})
-        params = {
-                  "text.usetex" : True,
-                  "font.family" : "cm"}
-        plt.rcParams.update(params)
+        N_max = np.round(self.time_vect_com[-1] / 3600)
     
-        ax1 = plt.subplot(2,1,1)
-        plt.grid()
-        for i in range(len(self.P_el_mat[0])): 
-            plt.plot(self.time_vect_com/3600, self.P_el_mat[:,i] , 'k', linewidth = 0.5)
-
-
-     
-        plt.xlabel('Time [h]',fontsize=18,  fontname="Times New Roman")
-        plt.ylabel('$\dot{W}_{el,i}$ [W]',fontsize=labelsize, fontname="Times New Roman" )            
-        plt.xlim(0, N_max)
-        plt.xticks(np.arange(0,N_max+1,4*N_max//24))
-        
-        ax2 = plt.subplot(2,1,2)
-        plt.grid() 
-        plt.plot(self.time_vect_com/3600, np.array(self.P_vect_cum)/1000 , 'k',  linewidth = 2)
-        
-        plt.xlabel('Time [h]',fontsize=18,  fontname="Times New Roman")
-        plt.ylabel('$\sum \dot{W}_{el,i}$ [kW]',fontsize=labelsize, fontname="Times New Roman" )   
-        plt.xlim(0, N_max)
-        plt.xticks(np.arange(0,N_max+1,4*N_max//24))
-
-        ## plot -- water consumption over time + total electricity consumption 
-        plt.figure(figsize=(xdim,ydim),constrained_layout=True)
-        plt.rcParams.update({'font.size':16})
-        params = {
-                  "text.usetex" : True,
-                  "font.family" : "cm"}
-        plt.rcParams.update(params)
+        # Primer gráfico: Perfiles de consumo eléctrico de los calentadores y consumo acumulado
+        fig1 = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1)
     
-        ax1 = plt.subplot(2,1,1)
-        plt.grid()
-
-        plt.plot(self.time_vect_com/3600, np.array(self.V_dot_vect_cum )*60, 'k', linewidth = 1.5)
-
-
-     
-        plt.xlabel('Time [h]',fontsize=18,  fontname="Times New Roman")
-        plt.ylabel('$\sum \dot{V}_{w,i}$ [l/min]',fontsize=labelsize, fontname="Times New Roman" )           
-        plt.xlim(0, N_max )
-        plt.xticks(np.arange(0,N_max+1,4*N_max//24))
-        
-        ax2 = plt.subplot(2,1,2)
-        plt.grid() 
-        plt.plot(self.time_vect_com/3600, np.array(self.P_vect_cum)/1000 , 'k',  linewidth = 1.5)
-        
-        plt.xlabel('Time [h]',fontsize=18,  fontname="Times New Roman")
-        plt.ylabel('$\sum \dot{W}_{el,i}$ [kW]',fontsize=labelsize, fontname="Times New Roman" )   
-        plt.xlim(0, N_max)
-        plt.xticks(np.arange(0,N_max+1,4*N_max//24))        
+        # Perfiles de todos los calentadores
+        for i in range(len(self.P_el_mat[0])):
+            fig1.add_trace(
+                go.Scatter(
+                    x=self.time_vect_com / 3600,
+                    y=self.P_el_mat[:, i],
+                    mode='lines',
+                    line=dict(color='black', width=0.5),
+                    name=f'Heater {i+1}'
+                ),
+                row=1, col=1
+            )
+    
+        # Consumo eléctrico acumulado
+        fig1.add_trace(
+            go.Scatter(
+                x=self.time_vect_com / 3600,
+                y=np.array(self.P_vect_cum) / 1000,
+                mode='lines',
+                line=dict(color='black', width=2),
+                name=r'$\sum \dot{W}_{el,i}$'
+            ),
+            row=2, col=1
+        )
+    
+        # Configuración de layout para la primera figura
+        fig1.update_layout(
+            height=600, width=700,
+            showlegend=False,
+            font=dict(family="Times New Roman", size=16),
+            template='simple_white',
+        )
+    
+        # Etiquetas y límites para la primera figura
+        fig1.update_xaxes(title_text="Time [h]", range=[0, N_max], tickvals=np.arange(0, N_max+1, 4 * N_max // 24), row=2, col=1)
+        fig1.update_yaxes(title_text=r'$\dot{W}_{el,i}$ [W]', row=1, col=1)
+        fig1.update_yaxes(title_text=r'$\sum \dot{W}_{el,i}$ [kW]', row=2, col=1)
+    
+        # Mostrar la primera figura
+        fig1.show('browser')
+    
+        # Segundo gráfico: Consumo acumulado de agua y consumo acumulado de electricidad
+        fig2 = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1)
+    
+        # Consumo acumulado de agua
+        fig2.add_trace(
+            go.Scatter(
+                x=self.time_vect_com / 3600,
+                y=np.array(self.V_dot_vect_cum) * 60,
+                mode='lines',
+                line=dict(color='black', width=1.5),
+                name=r'$\sum \dot{V}_{w,i}$'
+            ),
+            row=1, col=1
+        )
+    
+        # Consumo eléctrico acumulado (de nuevo)
+        fig2.add_trace(
+            go.Scatter(
+                x=self.time_vect_com / 3600,
+                y=np.array(self.P_vect_cum) / 1000,
+                mode='lines',
+                line=dict(color='black', width=1.5),
+                name=r'$\sum \dot{W}_{el,i}$'
+            ),
+            row=2, col=1
+        )
+    
+        # Configuración de layout para la segunda figura
+        fig2.update_layout(
+            height=600, width=700,
+            showlegend=False,
+            font=dict(family="Times New Roman", size=16),
+            template='simple_white',
+        )
+    
+        # Etiquetas y límites para la segunda figura
+        fig2.update_xaxes(title_text="Time [h]", range=[0, N_max], tickvals=np.arange(0, N_max+1, 4 * N_max // 24), row=2, col=1)
+        fig2.update_yaxes(title_text=r'$\sum \dot{V}_{w,i}$ [l/min]', row=1, col=1)
+        fig2.update_yaxes(title_text=r'$\sum \dot{W}_{el,i}$ [kW]', row=2, col=1)
+    
+        # Mostrar la segunda figura
+        fig2.show('browser')        
         
 
  

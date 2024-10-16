@@ -26,11 +26,15 @@ NDay = 1
 nx = 40 # Number of cell in each water heater
 T_amb = 19 + 273.15
 T_w_supply = 14 + 273.15
-
+demand_reduction_schedule = [
+    {'start_hour': 9, 'end_hour': 10, 'power_to_cut': 500},  # Reducir 50 kW entre 9:00 y 10:00
+    # {'start_hour': 12, 'end_hour': 13, 'power_to_cut': 30},  # Reducir 30 kW entre 12:00 y 13:00
+    # {'start_hour': 18, 'end_hour': 20, 'power_to_cut': 70}   # Reducir 70 kW entre 18:00 y 20:00
+]
 
 # Creation of the pool of water heater
 pool = procF.dlt.WaterHeaterPool(N_random_HP = N_random_HP, N_random_E = N_random_E, N_VELIS = N_VELIS, N_NUOS = N_NUOS,
-                                 nx = nx, T_w_supply = T_w_supply, T_amb = T_amb)
+                                 nx = nx, T_w_supply = T_w_supply, T_amb = T_amb, control_strategy='full_load')
 pool.generate_pool() 
 # pool.simulate_pool_parallel(NDay) # Can be used when using the embedded control function
 
@@ -42,7 +46,10 @@ pool.initialize_sim(NDay)
 # Loop over the time 
 for t in range(len(pool.time_vect_com)):
     # Loop over the water heaters
-    pool.P_el_vect_cum = 0 #I Reset the variable cumulating the power of each WH
+    pool.P_el_vect_cum = 0 #I Reset the variable cumulating the power of each WH7
+
+
+    
     for cnt_wh, WH in enumerate(pool.pool_WH):
         
         # Implement control strategy any strategy can be used determining if switch 1 (heating resistor) 
@@ -51,7 +58,9 @@ for t in range(len(pool.time_vect_com)):
         
         T_SP = 55 + 273.15
         # Default control strategy to track the setpoint with +3K -3K of hysteresis (see control_functions)
+        # switch1, switch2 = pool.control_functions(WH, t*60, T_probe[cnt_wh], T_SP, strategy = pool.pool_control_strategy)
         switch1, switch2 = pool.control_functions(WH, t*60, T_probe[cnt_wh], T_SP, strategy = pool.pool_control_strategy)
+        
         # Simulate the water cnt_wh th water heater of the pool
         T_probe[cnt_wh] = pool.WH_iteration(WH, t, cnt_wh, switch1, switch2)
     pool.record_results(t)
