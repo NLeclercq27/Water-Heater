@@ -5,6 +5,7 @@ from scipy.interpolate import make_interp_spline
 from scipy.stats import norm
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import plotly.colors
 import math
 import random
 # include the main library path (the parent folder) in the path environment variable
@@ -13,7 +14,7 @@ root_folder = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.append(root_folder)
 # import the library as a package (defined in __init__.py) => function calls are done through the lpackage (eg om.solve_model)
 import source as procF
-
+colors = plotly.colors.qualitative.Plotly
 
 class WaterHeaterPool():
     
@@ -774,8 +775,55 @@ class WaterHeaterPool():
                 V_dot_tot += self.DHW_load_gen(nday, day_init = day_init)
         
             WH.flow_rate_lps = V_dot_tot
+            print(WH.flow_rate_lps)
+            # print(type(WH.flow_rate_lps))
+    def load_fixed_profiles(self, file_path):
+            
+        """
+        Load fixed water consumption profiles from a CSV file.
+        Parameters
+        ----------
+        file_path : str
+            Path to the CSV file containing the fixed water consumption profiles.
+        Returns
+        -------
+        None.
+        """
+        profiles_df = pd.read_csv(file_path, sep=';')
         
-    def simulate_pool_parallel(self,  nday, day_init = 0):
+        # Print the DataFrame and its columns for debugging
+        # print("DataFrame columns:", profiles_df.columns)
+        # print("DataFrame head:\n", profiles_df.head())
+        
+        # Select columns that start with 'vdot_'
+        profiles_df = profiles_df.filter(regex='^vdot_')
+        # print(profiles_df)
+        time_steps = len(profiles_df)
+        num_heaters = len(self.pool_WH)
+        
+        print(f"Number of timesteps: {time_steps}")
+        print(f"Number of water heaters: {num_heaters}")
+        
+        if time_steps < num_heaters:
+            raise ValueError(f"Not enough profiles for the number of water heaters. Profiles: {time_steps}, Heaters: {num_heaters}")
+        
+        for i, WH in enumerate(self.pool_WH):
+            # print(i)
+            # print(WH)
+            # if i < num_profiles:
+            # Convert the row to a list and assign it to the water heater's flow rate
+            WH.flow_rate_lps = profiles_df.T.iloc[i].to_numpy()
+            # print(WH.flow_rate_lps)
+            # print(WH.flow_rate_lps.shape) 
+            # profiles_df.T.iloc[i].to_numpy()
+            # profiles_df.T.iloc[i].to_csv('flow_rate_lps.csv')
+                # WH.T_w_out = [self.T_init] * num_profiles
+                # print(type(WH.flow_rate_lps) )
+                # print (i)
+    
+    
+    
+    def simulate_pool_parallel(self,  nday, day_init = 0, use_fixed_profiles=True):
         
         """
         Simulate the pool of water heaters stating from day day_init of the year
@@ -805,7 +853,12 @@ class WaterHeaterPool():
         self.P_vect_cum = np.zeros(len(self.time_vect_com)) # Vector of the elecrical consumption of the pool
         self.V_dot_vect_cum = 0
         self.T_constraint_bool_vect = np.ones(len(self.pool_WH)) # Vector of the size of the pool checking the respect of the constraint (T_w_out > T_constraint)
-        self.attach_WaterConsumptionProfile(nday, day_init) 
+        # if use_fixed_profiles:
+        #     self.load_fixed_profiles(fixed_profiles_path)
+        #     print("Loaded fixed profiles")
+        # else:
+        self.attach_WaterConsumptionProfile(nday, day_init=0)
+        # print("Attached water consumption profiles")
         self.E_sto_vect = np.zeros(len(self.time_vect_com)) # Vector of the available energy storage
         self.P_sto_vect = np.zeros(len(self.time_vect_com)) # Vector of the available power storage
         self.E_cons_tot_kwh = 0
@@ -873,7 +926,8 @@ class WaterHeaterPool():
                 print(f'{int(t/60 + 4)} hours simulated') 
         print(f'Ratio of temperature constraints ({self.T_constraint -273.15:.2f}°C) respected: {int(sum(self.T_constraint_bool_vect))}/{len(self.pool_WH)}')        
     
-    def initialize_sim(self, nday, day_init = 0):
+     
+    def initialize_sim(self, nday, day_init = 0, use_fixed_profiles=True, fixed_profiles_path='TEST_digital_twin_WH_timeseries_1.csv'):
         """
         Function initializing the simulation variable in case the control of the WH is done 
         in the main script (digital twin).
@@ -898,9 +952,19 @@ class WaterHeaterPool():
         self.P_vect_cum = np.zeros(len(self.time_vect_com)) # Vector of the elecrical consumption of the pool
         self.V_dot_vect_cum = 0
         self.T_constraint_bool_vect = np.ones(len(self.pool_WH)) # Vector of the size of the pool checking the respect of the constraint (T_w_out > T_constraint)
-        self.attach_WaterConsumptionProfile(nday, day_init)
+        
+        if use_fixed_profiles:
+            self.load_fixed_profiles(fixed_profiles_path)
+            print('fixed_profiles_path')
+        else:
+            self.attach_WaterConsumptionProfile(nday, day_init=0)
+            print('attached profiles')
+        # self.attach_WaterConsumptionProfile(nday, day_init)
         self.E_sto_vect = np.zeros(len(self.time_vect_com)) # Vector of the available energy storage
         self.P_sto_vect = np.zeros(len(self.time_vect_com)) # Vector of the available power storage
+        self.E_VPP_max = np.zeros(len(self.time_vect_com)) # Vector of the maximun energy storage in the VPP
+        self.E_VPP_min = np.zeros(len(self.time_vect_com)) # Vector of the minimum energy storage in the VPP
+        self.E_VPP_content = np.zeros(len(self.time_vect_com)) # Vector of the energy storage in the VPP
         self.E_cons_tot_kwh = 0
         self.Q_amb_tot_kwh = 0
         self.P_el_vect_cum = 0
@@ -945,17 +1009,20 @@ class WaterHeaterPool():
             T_SP = self.T_SP_normal
             self.T_mean_mat[t,cnt_wh] = np.mean(WH.T_record1[-1])
             
-        # Check is there is a flow rate or not 
-        if WH.flow_rate_lps[t] == 0: 
+        # Check is there is a flow rate or not
+        use_csv = True
+        if WH.flow_rate_lps[t] == 0 and use_csv == True: 
             # Period of charge/rest                 
             WH.MN_model_nocontrol(self.tau_charge, time_period, WH.flow_rate_lps[t], self.T_w_supply, self.T_amb, switch1, switch2, self.T_ext)
+        elif WH.flow_rate_lps[t] != 0 and use_csv == True:
+            WH.MN_model_nocontrol(self.tau_discharge, time_period, WH.flow_rate_lps[t], self.T_w_supply, self.T_amb, switch1, switch2, self.T_ext)   
         else: 
             # Period of discharge - use of water
             T_out_wh = WH.T_w_out[-1]
             WH.flow_rate_lps[t] = self.correct_flow_rate(WH.flow_rate_lps[t], T_out_wh)
             m_dot = WH.flow_rate_lps[t]
             WH.MN_model_nocontrol(self.tau_discharge, time_period, WH.flow_rate_lps[t], self.T_w_supply, self.T_amb, switch1, switch2, self.T_ext)
-        
+            # print('fuck')
         # Adding results to the pool
         self.P_el_vect_cum += WH.W_dot_cons_tot[-1]
         self.T_out_mat[t,cnt_wh] = WH.T_w_out[-1]
@@ -984,9 +1051,12 @@ class WaterHeaterPool():
 
         """
         self.P_vect_cum[t] = self.P_el_vect_cum
-        P_sto, E_sto = self.E_storage_potential()
+        P_sto, E_sto, E_max, E_min, E_content = self.E_storage_potential()
         self.E_sto_vect[t] = E_sto
         self.P_sto_vect[t] = P_sto
+        self.E_VPP_max[t] = E_max
+        self.E_VPP_min[t] = E_min
+        self.E_VPP_content[t] = E_content
         # Print evolution of the simulation
         if t/60 % 4 == 0:
             print(f'{int(t/60 + 4)} hours simulated') 
@@ -1035,10 +1105,8 @@ class WaterHeaterPool():
         DT_low = 3 # Value subtracted to the setpoint where the system restart heating
         hyst = DT_low + DT_high # Total hysteresis range
         T_SP = T_SP + DT_high
-        
-        
-        
-        
+      
+      
         
         if strategy == 'tracking_SP':
             if WH.Model == 'VELIS': # If the Velis is used the strategy never heats both tank at the same time              
@@ -1169,6 +1237,12 @@ class WaterHeaterPool():
                 if T_probe > self.T_max_HP:
                     switch2 = False
         return switch1, switch2
+    
+
+
+    
+    
+    
         
     # def plot_available_storage(self): 
     #     """
@@ -1213,6 +1287,9 @@ class WaterHeaterPool():
     #     plt.ylabel('$E_{el,sto}$ [kWh]',fontsize=labelsize, fontname="Times New Roman" )   
     #     plt.xlim(0, N_max)
     #     plt.xticks(np.arange(0,N_max+1,4*N_max//24))
+
+
+
     def plot_available_storage(self):
         """
         Plot the power that could be used instantly and the reserve of electricity that can be stored.
@@ -1233,45 +1310,85 @@ class WaterHeaterPool():
         fig.add_trace(
             go.Scatter(
                 x=self.time_vect_com / 3600,
-                y=self.P_sto_vect - self.P_vect_cum / 1000,
+                y=self.P_sto_vect - self.P_vect_cum/1000,
                 mode='lines',
                 line=dict(color='black', width=1.5),
                 name=r'$\dot{W}_{el,sto}$'
             ),
             row=1, col=1
         )
-    
-        # Segundo gráfico - Energy (E_{el,sto})
         fig.add_trace(
             go.Scatter(
                 x=self.time_vect_com / 3600,
-                y=self.E_sto_vect,
+                y=np.array(self.P_vect_cum) / 1000,
                 mode='lines',
-                line=dict(color='black', width=1.5),
-                name=r'$E_{el,sto}$'
+                line=dict(color='black', width=2),
+                name=r'$\P_{VPP,t}$'
+            ),
+            row=1, col=1
+        )
+    
+    
+        # Segundo gráfico - Energy (E_{el,sto})
+        # fig.add_trace(
+        #     go.Scatter(
+        #         x=self.time_vect_com / 3600,
+        #         y=self.E_sto_vect,
+        #         mode='lines',
+        #         line=dict(color='black', width=1.5),
+        #         name=r'$E_{el,sto}$'
+        #     ),
+        #     row=2, col=1
+        # )
+        fig.add_trace(
+            go.Scatter(
+                x=self.time_vect_com / 3600,
+                y=self.E_VPP_max,
+                mode='lines',
+                line=dict(dash = 'dash', width=1.5),
+                name=r'$E_{VPP,max}$'
             ),
             row=2, col=1
         )
-    
+        fig.add_trace(
+            go.Scatter(
+                x=self.time_vect_com / 3600,
+                y=self.E_VPP_min,
+                mode='lines',
+                line=dict(dash = 'dash', width=1.5),
+                name=r'$E_{VPP,min}$'
+            ),
+            row=2, col=1
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=self.time_vect_com / 3600,
+                y=self.E_VPP_content,
+                mode='lines',
+                line=dict(width=1.5),
+                name=r'$E_{VPP,Content}$'
+            ),
+            row=2, col=1
+        )
         # Configuraciones de layout
         fig.update_layout(
-            height=600, width=700,  # Tamaño de la figura
-            showlegend=False,  # Quitar leyenda si no es necesaria
-            font=dict(family="Times New Roman", size=16),
-            template='simple_white',  # Estilo blanco con cuadrículas
+            height=800, width=1000,  # Tamaño de la figura
+            showlegend=True,  # Quitar leyenda si no es necesaria
+            font=dict( size=16), #family="Times New Roman"
+            template='presentation',  # Estilo blanco con cuadrículas
         )
     
         # Etiquetas de ejes y límites para el primer gráfico
         fig.update_xaxes(title_text="Time [h]", row=2, col=1)
-        fig.update_yaxes(title_text=r'$\dot{W}_{el,sto}$ [kW]', row=1, col=1)
-        fig.update_yaxes(title_text=r'$E_{el,sto}$ [kWh]', row=2, col=1)
+        fig.update_yaxes(title_text=r'$\dot{W}_{el,sto} (kW) $ ', row=1, col=1)
+        fig.update_yaxes(title_text=r'$E_{el,sto} [kWh]$ ', row=2, col=1)
         
         # Limitar el rango de los ejes x
-        fig.update_xaxes(range=[0, N_max], tickvals=np.arange(0, N_max+1, 4 * N_max // 24))
+        fig.update_xaxes(range=[0, N_max], tickvals=np.arange(0, N_max+1, 2 * N_max // 24))
     
         # Mostrar la figura
         fig.show('browser')        
-        
+        fig.write_image("fig.svg")
     # def plot_consumption(self): 
     #     """
     #     Create two plots.
@@ -1313,7 +1430,7 @@ class WaterHeaterPool():
     #     plt.plot(self.time_vect_com/3600, np.array(self.P_vect_cum)/1000 , 'k',  linewidth = 2)
         
     #     plt.xlabel('Time [h]',fontsize=18,  fontname="Times New Roman")
-    #     plt.ylabel('$\sum \dot{W}_{el,i}$ [kW]',fontsize=labelsize, fontname="Times New Roman" )   
+    #     plt.ylabel('$\{P}_{VPP,t}$ [kW]',fontsize=labelsize, fontname="Times New Roman" )   
     #     plt.xlim(0, N_max)
     #     plt.xticks(np.arange(0,N_max+1,4*N_max//24))
 
@@ -1342,7 +1459,7 @@ class WaterHeaterPool():
     #     plt.plot(self.time_vect_com/3600, np.array(self.P_vect_cum)/1000 , 'k',  linewidth = 1.5)
         
     #     plt.xlabel('Time [h]',fontsize=18,  fontname="Times New Roman")
-    #     plt.ylabel('$\sum \dot{W}_{el,i}$ [kW]',fontsize=labelsize, fontname="Times New Roman" )   
+    #     plt.ylabel('$\{P}_{VPP,t}$ [kW]',fontsize=labelsize, fontname="Times New Roman" )   
     #     plt.xlim(0, N_max)
     #     plt.xticks(np.arange(0,N_max+1,4*N_max//24))
     def plot_consumption(self):
@@ -1368,7 +1485,7 @@ class WaterHeaterPool():
                     x=self.time_vect_com / 3600,
                     y=self.P_el_mat[:, i],
                     mode='lines',
-                    line=dict(color='black', width=0.5),
+                    line=dict(color=colors[i % len(colors)], width=1),
                     name=f'Heater {i+1}'
                 ),
                 row=1, col=1
@@ -1381,7 +1498,7 @@ class WaterHeaterPool():
                 y=np.array(self.P_vect_cum) / 1000,
                 mode='lines',
                 line=dict(color='black', width=2),
-                name=r'$\sum \dot{W}_{el,i}$'
+                name=r'$\P_{VPP,t}$'
             ),
             row=2, col=1
         )
@@ -1389,19 +1506,19 @@ class WaterHeaterPool():
         # Configuración de layout para la primera figura
         fig1.update_layout(
             height=600, width=700,
-            showlegend=False,
-            font=dict(family="Times New Roman", size=16),
-            template='simple_white',
+            showlegend=True,
+            font=dict( size=16), #family="Times New Roman"
+            template='presentation'
         )
     
         # Etiquetas y límites para la primera figura
-        fig1.update_xaxes(title_text="Time [h]", range=[0, N_max], tickvals=np.arange(0, N_max+1, 4 * N_max // 24), row=2, col=1)
-        fig1.update_yaxes(title_text=r'$\dot{W}_{el,i}$ [W]', row=1, col=1)
-        fig1.update_yaxes(title_text=r'$\sum \dot{W}_{el,i}$ [kW]', row=2, col=1)
+        fig1.update_xaxes(title_text="Time [h]", range=[0, N_max], tickvals=np.arange(0, N_max+1, 2 * N_max // 24), row=2, col=1)
+        fig1.update_yaxes(title_text=r'$\dot{W}_{el,i} [W]$', row=1, col=1)
+        fig1.update_yaxes(title_text=r'$P_{VPP,t} (kW)$', row=2, col=1)
     
         # Mostrar la primera figura
         fig1.show('browser')
-    
+        fig1.write_image("fig1.svg")
         # Segundo gráfico: Consumo acumulado de agua y consumo acumulado de electricidad
         fig2 = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1)
     
@@ -1424,7 +1541,7 @@ class WaterHeaterPool():
                 y=np.array(self.P_vect_cum) / 1000,
                 mode='lines',
                 line=dict(color='black', width=1.5),
-                name=r'$\sum \dot{W}_{el,i}$'
+                name=r'$\P_{VPP,t}$'
             ),
             row=2, col=1
         )
@@ -1433,18 +1550,18 @@ class WaterHeaterPool():
         fig2.update_layout(
             height=600, width=700,
             showlegend=False,
-            font=dict(family="Times New Roman", size=16),
-            template='simple_white',
+            font=dict(size=14),#family="Times New Roman"
+            template='presentation',
         )
     
         # Etiquetas y límites para la segunda figura
         fig2.update_xaxes(title_text="Time [h]", range=[0, N_max], tickvals=np.arange(0, N_max+1, 4 * N_max // 24), row=2, col=1)
-        fig2.update_yaxes(title_text=r'$\sum \dot{V}_{w,i}$ [l/min]', row=1, col=1)
-        fig2.update_yaxes(title_text=r'$\sum \dot{W}_{el,i}$ [kW]', row=2, col=1)
+        fig2.update_yaxes(title_text=r'$\sum \dot{V}_{w,i} [l/min]$', row=1, col=1)
+        fig2.update_yaxes(title_text=r'$\P_{VPP,t}$ (kW)$', row=2, col=1)
     
         # Mostrar la segunda figura
         fig2.show('browser')        
-        
+        fig2.write_image("fig2.svg")
 
  
     def correct_flow_rate(self, V_dot_h, T_out_wh):
@@ -1495,7 +1612,10 @@ class WaterHeaterPool():
         """
 
         P_sto = 0
-        E_sto = 0 
+        E_sto = 0
+        E_max = 0
+        E_min = 0
+        E_content = 0
         T_max = self.T_max
         cp = 4186 #J/(kgK)
         
@@ -1516,13 +1636,19 @@ class WaterHeaterPool():
             
 
             E_sto_wh = WH.Total_volume*1000 * cp * (T_max - T_mean)
+            E_max_wh = WH.Total_volume*1000 * cp * (T_max - self.T_w_supply)*0.0000002778 # kWh
+            E_min_wh = WH.Total_volume*1000 * cp * (48+273 - self.T_w_supply)*0.0000002778 # kWh
+            E_content_wh = WH.Total_volume*1000 * cp * (T_mean - self.T_w_supply)*0.0000002778 # kWh
+            E_max += E_max_wh
+            E_min += E_min_wh
             E_sto += E_sto_wh
+            E_content += E_content_wh
             P_sto =  P_sto + P_resistor + P_HP
         
         P_sto = P_sto/1000 # kW        
         E_sto = E_sto/3.6/1e6 # kWh
 
-        return  P_sto, E_sto 
+        return  P_sto, E_sto, E_max, E_min, E_content
 
     def save_results_csv(self, name):
         """
@@ -1597,10 +1723,61 @@ class WaterHeaterPool():
         # Save the DataFrame to the specified path
         df_charact .to_csv(full_path_charact, index=False, sep=';')
         df_timeseries.to_csv(full_path_timeseries, index=False, sep=';')
-        print(f"Results saved to {full_path_charact} and {full_path_timeseries}")        
-    
+        print(f"Results saved to {full_path_charact} and {full_path_timeseries}")
+    def get_and_sort_random_E_heaters(self):
+        """
+        Get the temperature of each water heater with model 'random_E' and sort them
+        from highest to lowest temperature. Also calculate the average temperature.
         
+        Returns
+        -------
+        sorted_heaters : list
+            List of heaters with model 'random_E' sorted by temperature in descending order.
+        avg_temp : float
+            Average temperature of heaters with model 'random_E'.
+        """
+        # Filter heaters with model 'random_E'
+        random_E_heaters = [wh for wh in self.pool_WH if wh.Model == 'random_E']
         
+        # Get the temperature of each heater
+        heaters_with_temp = [(wh, wh.T_probe) for wh in random_E_heaters]
         
+        # Sort heaters by temperature in descending order
+        sorted_heaters = sorted(heaters_with_temp, key=lambda x: x[1], reverse=True)
         
+        # Calculate the average temperature
+        if heaters_with_temp:
+            avg_temp = sum(temp for _, temp in heaters_with_temp) / len(heaters_with_temp)
+        else:
+            avg_temp = 0.0
         
+        return sorted_heaters, avg_temp
+    def load_pool_from_csv(self, csv_file):
+        """
+        Load the pool of water heaters from a CSV file.
+        
+        Parameters
+        ----------
+        csv_file : str
+            Path to the CSV file.
+        
+        Returns
+        -------
+        None.
+        """
+        # Load the CSV file
+        df = pd.read_csv(csv_file, sep=';')
+        
+        # Create a list to store the water heaters
+        self.pool_WH = []
+        
+        # Loop over the rows in the DataFrame
+        for i, row in df.iterrows():
+            # Get the parameters for the water heater
+            model = row['Type']
+            volume = row['Volume (L)'] / 1000
+            power = row['Electric Power (W)']
+            height = row['Height (m)']
+            diameter = row['Diameter (m)']
+
+            return model, volume, power, height, diameter
