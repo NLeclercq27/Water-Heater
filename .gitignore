@@ -172,3 +172,6 @@ scripts/digital_twin_clean.py
 *.jpeg
 *.pdf
 *.csv
+
+# Temporary lock files
+.~lock.*
