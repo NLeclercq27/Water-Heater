@@ -160,3 +160,7 @@ cython_debug/
 .idea/
 
 results/
+
+# Local backup scripts
+scripts/digital_twin_backup.py
+scripts/digital_twin_clean.py

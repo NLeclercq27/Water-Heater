@@ -1061,7 +1061,7 @@ class WaterHeaterPool():
         if t/60 % 4 == 0:
             print(f'{int(t/60 + 4)} hours simulated') 
 
-    def control_functions(self, WH, time, T_probe, T_SP, strategy = 'tracking_SP') :    
+    def control_functions(self, WH, time, T_probe, T_SP, strategy = 'tracking_SP', **kwargs) :    
         """
         
 
@@ -1091,6 +1091,11 @@ class WaterHeaterPool():
                 - heat the system until the maximum water temperature is reached (80°C in every water heater)
                   strategy for electricity storage (gives the maximum power and energy that can be stored over time)
                 - heat the HPWH storage using the electrical resistor as well . The default is 'tracking_SP'.
+            "PV_strategy":
+                - Turn on the resistor when surplus PV generation exceeds home consumption
+                  plus EV charging.  Optionally also activated when an external activation
+                  signal (e.g. aFRR-) is received.
+                - Extra keyword arguments: P_Home, P_EV, PV_Gen, activation, t_index.
 
         Returns
         -------
@@ -1236,14 +1241,232 @@ class WaterHeaterPool():
                 switch1 = switch2
                 if T_probe > self.T_max_HP:
                     switch2 = False
+
+        if strategy == 'PV_strategy':
+            # PV-based strategy: turn on when surplus PV is available or
+            # when an external activation signal (e.g. aFRR-) is received.
+            P_Home     = kwargs.get('P_Home', 0)
+            P_EV       = kwargs.get('P_EV', 0)
+            PV_Gen     = kwargs.get('PV_Gen', 0)
+            activation = kwargs.get('activation', 0)
+
+            T_probe_val = T_probe[0] if isinstance(T_probe, (tuple, list)) else T_probe
+
+            surplus = PV_Gen - P_Home - P_EV
+
+            if T_probe_val >= T_SP:
+                switch1 = False
+            elif surplus > 0 or activation > 0:
+                switch1 = True
+            elif T_probe_val <= T_SP - hyst:
+                switch1 = True
+            else:
+                switch1 = WH.switch1
+            switch2 = False
+
         return switch1, switch2
-    
 
+    # ── Pool-level control strategies ────────────────────────────────────
+    # These methods implement schedule-based overrides that operate on the
+    # whole pool (not individual heaters).  They are meant to be called
+    # from the simulation script after collecting per-heater state data
+    # via ``collect_step_data``.
 
-    
-    
-    
-        
+    def collect_step_data(self, t):
+        """
+        Collect temperature, power and switch-status data for every heater
+        at time step *t* using temperatures from *t-1*.
+
+        Parameters
+        ----------
+        t : int
+            Current time-step index (must be > 0).
+
+        Returns
+        -------
+        step_data : list[dict]
+            One dictionary per heater with keys:
+            ``heater_index``, ``time_index``, ``temperature_1``,
+            ``temperature_2``, ``heater`` (WH object), ``power`` [kW]
+            (power consumed if ON), ``power_on`` [kW] (power that could be
+            consumed if turned ON), ``status`` (current switch1 state).
+        """
+        step_data = []
+        for cnt_wh, WH in enumerate(self.pool_WH):
+            temp1, temp2 = self.T_probe_2Dlist[cnt_wh][t - 1]
+            power_peak_kW = WH.param_heating["Q_dot_peak_E"] / 1000.0
+            step_data.append({
+                'heater_index':  cnt_wh,
+                'time_index':    t,
+                'temperature_1': temp1,
+                'temperature_2': temp2,
+                'heater':        WH,
+                'power':         int(WH.switch1) * power_peak_kW,
+                'power_on':      int(not WH.switch1) * power_peak_kW,
+                'status':        WH.switch1,
+            })
+        return step_data
+
+    def apply_demand_reduction(self, step_data, fraction_to_shed=None,
+                               power_to_shed_kW=None, power_cap_kW=None,
+                               already_shed=None):
+        """
+        Turn **off** the hottest heaters until a target amount of power
+        has been shed.  Supports **latching**: pass *already_shed* to
+        keep previously shed heaters off and only add more if needed.
+
+        The target can be expressed in three ways (priority order):
+
+        1. **power_cap_kW** – maximum total pool power allowed [kW].
+           Re-evaluated every call so that if heaters naturally turn off
+           (e.g. reaching set-point) no extra shedding is needed.
+        2. **power_to_shed_kW** – absolute amount to shed [kW].
+           Applied only on the *first* call (when *already_shed* is
+           empty); subsequent calls maintain the latch.
+        3. **fraction_to_shed** – fraction (0.0–1.0) of active power.
+           Same "first-call-only" behaviour as *power_to_shed_kW*.
+
+        If none is provided the method returns *already_shed* unchanged.
+
+        Parameters
+        ----------
+        step_data : list[dict]
+            Output of :meth:`collect_step_data`.
+        fraction_to_shed : float or None, optional
+            Fraction of active power to shed (0.0 – 1.0).
+        power_to_shed_kW : float or None, optional
+            Absolute power to shed [kW].
+        power_cap_kW : float or None, optional
+            Maximum allowed pool power [kW].  Excess is shed.
+        already_shed : set or None, optional
+            Heater objects latched off from a previous call.  They are
+            kept in the returned list and excluded from further decisions.
+
+        Returns
+        -------
+        turned_off : list
+            **All** WH objects that should remain off (old latch + new).
+        """
+        if already_shed is None:
+            already_shed = set()
+
+        # -- Candidates: only heaters NOT already latched off -----------
+        candidates = [e for e in step_data
+                      if e['heater'] not in already_shed]
+        candidates.sort(key=lambda x: x['temperature_1'], reverse=True)
+        available_power = sum(e['power'] for e in candidates)  # kW
+
+        # -- Determine shedding target ----------------------------------
+        # power_cap_kW: always recompute (pool power may have changed)
+        if power_cap_kW is not None:
+            target = max(available_power - power_cap_kW, 0.0)
+        # absolute / fraction: only compute on the FIRST call; after
+        # that the latch already holds the right heaters off.
+        elif already_shed:
+            return list(already_shed)   # maintain latch, nothing more
+        elif power_to_shed_kW is not None:
+            target = power_to_shed_kW
+        elif fraction_to_shed is not None:
+            target = available_power * fraction_to_shed
+        else:
+            return list(already_shed)
+
+        # -- Shed from candidates (hottest first) -----------------------
+        shed = 0.0
+        newly_off = []
+        for entry in candidates:
+            if shed >= target:
+                break
+            if entry['power'] <= 0:          # already off → skip
+                continue
+            if entry['power'] <= (target - shed):
+                heater = entry['heater']
+                heater.switch1 = False
+                newly_off.append(heater)
+                shed += entry['power']
+
+        return list(already_shed) + newly_off
+
+    def apply_forced_switch_on(self, step_data, power_target):
+        """
+        Force-start the **coldest** heaters until the cumulative added
+        power reaches *power_target* watts.
+
+        Parameters
+        ----------
+        step_data : list[dict]
+            Output of :meth:`collect_step_data`.
+        power_target : float
+            Target power to add [W].
+
+        Returns
+        -------
+        turned_on : list
+            WH objects that were forced on.
+        already_on : list
+            WH objects that were already on before this call.
+        """
+        sorted_on = sorted(step_data, key=lambda x: x['temperature_1'])
+        already_on = [e['heater'] for e in step_data if e['status']]
+        power_on = 0.0
+        turned_on = []
+        power_target_kW = power_target / 1000.0
+        for entry in sorted_on:
+            if power_on >= power_target_kW:
+                break
+            heater = entry['heater']
+            heater.switch1 = True
+            turned_on.append(heater)
+            power_on += entry['power_on']
+        return turned_on, already_on
+
+    def load_pool_from_charact_csv(self, csv_file, sep=';', encoding=None):
+        """
+        Load water-heater characteristics from a CSV file and populate the
+        pool.  Each row in the CSV defines one water heater.
+
+        Expected columns: ``Type``, ``Volume (L)``, ``Height (m)``,
+        ``Diameter (m)``, ``Electric Power (W)``.
+
+        Parameters
+        ----------
+        csv_file : str
+            Path to the characteristics CSV.
+        sep : str, optional
+            Column separator (default ``';'``).
+        encoding : str or None, optional
+            File encoding (default ``None`` = auto-detect).
+
+        Returns
+        -------
+        None.
+        """
+        df = pd.read_csv(csv_file, sep=sep, encoding=encoding)
+        self.pool_WH = []
+        for _, row in df.iterrows():
+            params = {
+                'model':          row['Type'],
+                'volume':         row['Volume (L)'] / 1000,
+                'height':         row['Height (m)'],
+                'diameter':       row['Diameter (m)'],
+                'power':          row['Electric Power (W)'],
+                'EWH':            True,
+                'HPWH':           False,
+                'double':         False,
+                'z_control':      0.3,
+                'z_init_E':       0.0,
+                'z_init_HP':      0.0,
+                'height_E':       0.3,
+                'height_HP':      0.0,
+                'Q_dot_peak_E':   row['Electric Power (W)'],
+                'h_amb':          0.75,
+                'H_mix':          0.15,
+                'V_s':            0,
+                'W_dot_el_basis': 0,
+            }
+            self.pool_WH.append(self.create_WH(params))
+        print(f"Loaded {len(self.pool_WH)} water heaters from {csv_file}")
+
     # def plot_available_storage(self): 
     #     """
     #     Plot the power that could be used instantly and the reserve of elecricity that can be stored.
